@@ -1072,19 +1072,38 @@ Examples:
                     historical_by_icao[icao] = []
                 historical_by_icao[icao].append(hist_pos)
             
-            # Add historical positions ONLY for currently visible aircraft
-            # This shows trajectories only for aircraft that are currently being detected
+            # Determine whether to show all historical trajectories or only current aircraft
+            # When --csv is used (current map): only show trajectories for current aircraft
+            # When no --csv (main map): show ALL historical trajectories
+            show_all_history = not args.csv
+
             for hist_pos in historical_positions:
-                # Only add historical positions for aircraft in current_icaos
-                if hist_pos["icao"] in current_icaos:
-                    is_duplicate = any(
-                        p["icao"] == hist_pos["icao"] and
-                        abs(p["lat"] - hist_pos["lat"]) < 0.0001 and
-                        abs(p["lon"] - hist_pos["lon"]) < 0.0001
-                        for p in positions
-                    )
-                    if not is_duplicate:
+                if show_all_history:
+                    # Main map: add ALL historical positions
+                    if hist_pos["icao"] in current_icaos:
+                        # For current aircraft, avoid duplicates
+                        is_duplicate = any(
+                            p["icao"] == hist_pos["icao"] and
+                            abs(p["lat"] - hist_pos["lat"]) < 0.0001 and
+                            abs(p["lon"] - hist_pos["lon"]) < 0.0001
+                            for p in positions
+                        )
+                        if not is_duplicate:
+                            positions.append(hist_pos)
+                    else:
+                        # For non-current aircraft, add all positions
                         positions.append(hist_pos)
+                else:
+                    # Current map: only add historical positions for current aircraft
+                    if hist_pos["icao"] in current_icaos:
+                        is_duplicate = any(
+                            p["icao"] == hist_pos["icao"] and
+                            abs(p["lat"] - hist_pos["lat"]) < 0.0001 and
+                            abs(p["lon"] - hist_pos["lon"]) < 0.0001
+                            for p in positions
+                        )
+                        if not is_duplicate:
+                            positions.append(hist_pos)
             
             print(f"Loaded {len(historical_positions)} historical positions for {len(historical_by_icao)} aircraft")
     
