@@ -39,6 +39,17 @@ python -m apps.adsb_cli csv
 python -m apps.plot_map --home-address "City, Country"
 ```
 
+## Install Docker (for the sender container)
+Docker is optional. Use it if you prefer an isolated runtime and easy auto-restart via Compose.
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+sudo apt-get install -y docker-compose-plugin
+docker --version
+docker compose version
+```
+- Log out/in (or reboot) after adding your user to the `docker` group.
+
 ## Send data to a central API (Pi as antenna)
 Copy and edit `.env.antenna.example` to `.env.antenna`:
 ```
