@@ -297,16 +297,19 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = None,
         is_current = icao in current_icaos if current_icaos else True
 
         if len(pos_list_sorted) > 1:
-            trajectory_coords = [[p["lat"], p["lon"]] for p in pos_list_sorted]
             line_opacity = 0.6 if is_current else 0.3
-            folium.PolyLine(
-                trajectory_coords,
-                color=marker_color,
-                weight=2,
-                opacity=line_opacity,
-                popup=f"Trajectory: {icao} ({len(pos_list_sorted)} points)",
-                tooltip=f"{icao} path",
-            ).add_to(m)
+            # Draw each segment with color based on altitude (rainbow effect)
+            for i in range(len(pos_list_sorted) - 1):
+                p1 = pos_list_sorted[i]
+                p2 = pos_list_sorted[i + 1]
+                # Use the altitude at the start of each segment for coloring
+                segment_color = get_altitude_color(p1.get("altitude_ft"))
+                folium.PolyLine(
+                    [[p1["lat"], p1["lon"]], [p2["lat"], p2["lon"]]],
+                    color=segment_color,
+                    weight=3,
+                    opacity=line_opacity,
+                ).add_to(m)
 
     # Add layer control
     folium.LayerControl().add_to(m)
@@ -660,11 +663,22 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = None,
             }}
 
             if (posList.length > 1) {{
-                const coords = posList.map(p => [p.lat, p.lon]);
-                const line = L.polyline(coords, {{ color: color, weight: 2, opacity: isCurrent ? 0.6 : 0.3 }})
-                    .bindPopup(`Trajectory: ${{icao}} (${{posList.length}} points)`);
-                lineLayer.addLayer(line);
-                currentLines[icao] = line;
+                // Draw each segment with color based on altitude (rainbow effect)
+                const lineOpacity = isCurrent ? 0.6 : 0.3;
+                const segments = [];
+                for (let i = 0; i < posList.length - 1; i++) {{
+                    const p1 = posList[i];
+                    const p2 = posList[i + 1];
+                    const segmentColor = getAltitudeColor(p1.altitude_ft);
+                    const segment = L.polyline([[p1.lat, p1.lon], [p2.lat, p2.lon]], {{
+                        color: segmentColor,
+                        weight: 3,
+                        opacity: lineOpacity
+                    }});
+                    lineLayer.addLayer(segment);
+                    segments.push(segment);
+                }}
+                currentLines[icao] = segments;
             }}
         }});
     }}
