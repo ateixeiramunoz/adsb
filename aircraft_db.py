@@ -164,6 +164,10 @@ class AircraftDatabase:
         """
         Load the aircraft database from CSV file.
 
+        Supports two formats:
+        1. Semicolon-delimited (tar1090): icao;reg;type;flags;model;;;
+        2. Comma-delimited with headers (OpenSky)
+
         Returns:
             True if database loaded successfully, False otherwise.
         """
@@ -176,19 +180,38 @@ class AircraftDatabase:
 
         try:
             with open(self.db_path, "r", encoding="utf-8", errors="ignore") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    # Handle different column naming conventions
-                    icao = row.get("icao24") or row.get("icao") or row.get("hex") or ""
-                    icao = icao.upper().strip()
-                    if icao:
-                        self._cache[icao] = {
-                            "registration": row.get("registration") or row.get("reg") or "",
-                            "type": row.get("typecode") or row.get("type") or row.get("aircraft_type") or "",
-                            "manufacturer": row.get("manufacturername") or row.get("manufacturer") or "",
-                            "model": row.get("model") or "",
-                            "owner": row.get("owner") or row.get("operator") or "",
-                        }
+                first_line = f.readline()
+                f.seek(0)
+
+                # Detect format: semicolon-delimited (tar1090) vs comma with headers
+                if ';' in first_line and not first_line.lower().startswith('icao'):
+                    # tar1090 format: icao;registration;type;flags;model;;;
+                    for line in f:
+                        parts = line.strip().split(';')
+                        if len(parts) >= 3:
+                            icao = parts[0].upper().strip()
+                            if icao and len(icao) == 6:
+                                self._cache[icao] = {
+                                    "registration": parts[1] if len(parts) > 1 else "",
+                                    "type": parts[2] if len(parts) > 2 else "",
+                                    "manufacturer": "",
+                                    "model": parts[4] if len(parts) > 4 else "",
+                                    "owner": "",
+                                }
+                else:
+                    # Comma-delimited with headers (OpenSky format)
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        icao = row.get("icao24") or row.get("icao") or row.get("hex") or ""
+                        icao = icao.upper().strip()
+                        if icao:
+                            self._cache[icao] = {
+                                "registration": row.get("registration") or row.get("reg") or "",
+                                "type": row.get("typecode") or row.get("type") or row.get("aircraft_type") or "",
+                                "manufacturer": row.get("manufacturername") or row.get("manufacturer") or "",
+                                "model": row.get("model") or "",
+                                "owner": row.get("owner") or row.get("operator") or "",
+                            }
 
             self._loaded = True
             print(f"Loaded {len(self._cache)} aircraft from database")

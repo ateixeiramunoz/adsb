@@ -258,7 +258,7 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = None,
         icon_anchor=(15, 15),
         class_name='home-marker'
     )
-    home_popup_html = f"<b>Home Position</b><br>{home_display_name}<br>Elevation: {home_elevation_m:.0f}m ({home_elevation_ft:.0f}ft)"
+    home_popup_html = f"<b>Home Position</b><br>{home_display_name}<br><b>Elevation:</b> {home_elevation_ft:.0f} ft ({home_elevation_m:.0f} m)"
     folium.Marker(
         location=[home_lat, home_lon],
         popup=folium.Popup(home_popup_html, max_width=300),
@@ -581,12 +581,19 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = None,
                 if (acInfo && acInfo.type) popup += `<b>Type:</b> ${{acInfo.type}}<br>`;
                 if (acInfo && acInfo.model) popup += `<b>Model:</b> ${{acInfo.model}}<br>`;
                 if (latest.flight) popup += `<b>Flight:</b> ${{latest.flight}}<br>`;
-                if (latest.altitude_ft) popup += `<b>Altitude:</b> ${{latest.altitude_ft.toLocaleString()}} ft<br>`;
-                if (latest.speed_kts) popup += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts<br>`;
+                if (latest.altitude_ft) popup += `<b>Altitude:</b> ${{latest.altitude_ft.toLocaleString()}} ft (${{Math.round(latest.altitude_ft * 0.3048).toLocaleString()}} m)<br>`;
+                if (latest.speed_kts) popup += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts (${{Math.round(latest.speed_kts * 1.852)}} km/h)<br>`;
                 if (latest.heading_deg != null) popup += `<b>Heading:</b> ${{Math.round(latest.heading_deg)}}°<br>`;
                 if (latest.squawk) popup += `<b>Squawk:</b> ${{latest.squawk}}<br>`;
                 if (latest.timestamp_utc) popup += `<b>Spotted:</b> ${{formatTimeAgo(latest.timestamp_utc)}}<br>`;
                 popup += `<b>Distance:</b> ${{formatDistance(calculate3DDistance(latest.lat, latest.lon, latest.altitude_ft))}}`;
+
+                // External tracking links
+                popup += `<br><br><b>Track:</b> `;
+                popup += `<a href="https://globe.adsbexchange.com/?icao=${{latest.icao.toLowerCase()}}" target="_blank" style="color:#0066cc;">ADSBexchange</a>`;
+                if (acInfo && acInfo.registration) {{
+                    popup += ` | <a href="https://www.flightradar24.com/data/aircraft/${{acInfo.registration.toLowerCase()}}" target="_blank" style="color:#0066cc;">FlightRadar24</a>`;
+                }}
 
                 if (currentMarkers[icao]) {{
                     currentMarkers[icao].setLatLng([latest.lat, latest.lon]);

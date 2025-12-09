@@ -96,7 +96,16 @@ def parse_sbs_line(line: str) -> Optional[Dict[str, Any]]:
     MSG,subtype,transmission_type,session_id,icao,flight_id,date,time,date2,time2,
     callsign,altitude,speed,track,lat,lon,vertical_rate,squawk,alert,emergency,spi,surface
 
-    Returns dict with parsed fields, or None if line is invalid/not a position message.
+    MSG types:
+    - MSG,1: Callsign (flight number)
+    - MSG,3: Airborne position (lat, lon, altitude)
+    - MSG,4: Airborne velocity (speed, heading)
+    - MSG,5: Surface position
+    - MSG,6: Surveillance altitude
+    - MSG,7: Air-to-air
+    - MSG,8: All call reply
+
+    Returns dict with parsed fields (partial data allowed), or None if line is invalid.
     """
     line = line.strip()
     if not line:
@@ -105,72 +114,135 @@ def parse_sbs_line(line: str) -> Optional[Dict[str, Any]]:
     fields = line.split(",")
 
     # Must be a MSG type
-    if len(fields) < 1 or fields[0] != "MSG":
-        return None
-
-    # Need at least ICAO (field 4) and lat/lon (fields 14, 15)
-    if len(fields) < 16:
+    if len(fields) < 5 or fields[0] != "MSG":
         return None
 
     icao = fields[4].strip()
     if not icao:
         return None
 
-    # Extract lat/lon - must be present and numeric
-    try:
-        lat_str = fields[14].strip()
-        lon_str = fields[15].strip()
+    # Initialize result with ICAO
+    result = {
+        "icao": icao,
+        "flight": None,
+        "lat": None,
+        "lon": None,
+        "altitude_ft": None,
+        "speed_kts": None,
+        "heading_deg": None,
+        "squawk": None,
+        "has_position": False,
+    }
 
-        if not lat_str or not lon_str:
-            return None
+    # Extract callsign/flight (field 10)
+    if len(fields) > 10 and fields[10].strip():
+        result["flight"] = fields[10].strip()
 
-        lat = float(lat_str)
-        lon = float(lon_str)
-
-        # Basic validation
-        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-            return None
-    except (ValueError, IndexError):
-        return None
-
-    # Extract optional fields
-    flight = fields[10].strip() if len(fields) > 10 else ""
-
-    altitude_ft = None
+    # Extract altitude (field 11)
     if len(fields) > 11 and fields[11].strip():
         try:
-            altitude_ft = int(float(fields[11]))
+            result["altitude_ft"] = int(float(fields[11]))
         except ValueError:
             pass
 
-    speed_kts = None
+    # Extract speed (field 12)
     if len(fields) > 12 and fields[12].strip():
         try:
-            speed_kts = float(fields[12])
+            result["speed_kts"] = float(fields[12])
         except ValueError:
             pass
 
-    heading_deg = None
+    # Extract heading/track (field 13)
     if len(fields) > 13 and fields[13].strip():
         try:
-            heading_deg = float(fields[13])
+            result["heading_deg"] = float(fields[13])
         except ValueError:
             pass
 
-    squawk = None
-    if len(fields) > 17 and fields[17].strip():
-        squawk = fields[17].strip()
+    # Extract lat/lon (fields 14, 15)
+    if len(fields) > 15:
+        try:
+            lat_str = fields[14].strip()
+            lon_str = fields[15].strip()
 
-    return {
-        "icao": icao,
-        "flight": flight,
-        "lat": lat,
-        "lon": lon,
-        "altitude_ft": altitude_ft,
-        "speed_kts": speed_kts,
-        "heading_deg": heading_deg,
-        "squawk": squawk,
-    }
+            if lat_str and lon_str:
+                lat = float(lat_str)
+                lon = float(lon_str)
+
+                # Basic validation
+                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                    result["lat"] = lat
+                    result["lon"] = lon
+                    result["has_position"] = True
+        except (ValueError, IndexError):
+            pass
+
+    # Extract squawk (field 17)
+    if len(fields) > 17 and fields[17].strip():
+        result["squawk"] = fields[17].strip()
+
+    return result
+
+
+# Track aircraft state across multiple messages
+aircraft_state: Dict[str, Dict[str, Any]] = {}
+
+
+def update_aircraft_state(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Update tracked aircraft state with new data.
+    Returns a complete position record if we have lat/lon, otherwise None.
+    """
+    icao = parsed["icao"]
+
+    # Initialize state if new aircraft
+    if icao not in aircraft_state:
+        aircraft_state[icao] = {
+            "icao": icao,
+            "flight": "",
+            "lat": None,
+            "lon": None,
+            "altitude_ft": None,
+            "speed_kts": None,
+            "heading_deg": None,
+            "squawk": None,
+            "last_update": None,
+        }
+
+    state = aircraft_state[icao]
+
+    # Update state with any non-None values from this message
+    if parsed["flight"]:
+        state["flight"] = parsed["flight"]
+    if parsed["lat"] is not None:
+        state["lat"] = parsed["lat"]
+    if parsed["lon"] is not None:
+        state["lon"] = parsed["lon"]
+    if parsed["altitude_ft"] is not None:
+        state["altitude_ft"] = parsed["altitude_ft"]
+    if parsed["speed_kts"] is not None:
+        state["speed_kts"] = parsed["speed_kts"]
+    if parsed["heading_deg"] is not None:
+        state["heading_deg"] = parsed["heading_deg"]
+    if parsed["squawk"]:
+        state["squawk"] = parsed["squawk"]
+
+    state["last_update"] = datetime.now(timezone.utc).isoformat()
+
+    # Only return a record if we have a valid position
+    if state["lat"] is not None and state["lon"] is not None:
+        return {
+            "icao": state["icao"],
+            "flight": state["flight"] or "",
+            "lat": state["lat"],
+            "lon": state["lon"],
+            "altitude_ft": state["altitude_ft"],
+            "speed_kts": state["speed_kts"],
+            "heading_deg": state["heading_deg"],
+            "squawk": state["squawk"],
+        }
+
+    return None
 
 
 def write_position(csv_path, position: Dict[str, Any], timestamp_utc: Optional[str] = None) -> None:
@@ -237,17 +309,22 @@ def main():
 
                 for line in f:
                     try:
-                        position = parse_sbs_line(line)
-                        if position:
-                            timestamp_utc = datetime.now(timezone.utc).isoformat()
-                            position_with_ts = {**position, "timestamp_utc": timestamp_utc}
+                        parsed = parse_sbs_line(line)
+                        if parsed:
+                            # Update aircraft state with this message's data
+                            position = update_aircraft_state(parsed)
 
-                            # Write to historical CSV
-                            write_position(csv_path, position, timestamp_utc)
+                            # Only write if we have a valid position
+                            if position:
+                                timestamp_utc = datetime.now(timezone.utc).isoformat()
+                                position_with_ts = {**position, "timestamp_utc": timestamp_utc}
 
-                            # Update current positions
-                            icao = position["icao"]
-                            current_positions[icao] = position_with_ts
+                                # Write to historical CSV
+                                write_position(csv_path, position, timestamp_utc)
+
+                                # Update current positions
+                                icao = position["icao"]
+                                current_positions[icao] = position_with_ts
 
                             record_count += 1
 
