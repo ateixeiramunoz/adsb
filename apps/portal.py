@@ -85,7 +85,7 @@ def main() -> None:
         <table class="table">
           <thead>
             <tr>
-              <th>ICAO</th><th>Flight</th><th>Last seen</th><th>First seen</th><th>Positions</th><th>Last lat/lon</th><th>Last alt (ft)</th>
+              <th>ICAO</th><th>Flight</th><th>Last seen</th><th>First seen</th><th>Positions</th><th>Last lat/lon</th><th>Last alt (ft)</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="recent-table-body"></tbody>
@@ -174,6 +174,22 @@ def main() -> None:
       border-bottom: 1px solid rgba(255,255,255,0.04);
       color: #e5e7eb;
       white-space: nowrap;
+    }
+    .chip {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+    .chip.secondary {
+      background: #111827;
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #e5e7eb;
     }
     .stat-card {
       background: rgba(255,255,255,0.04);
@@ -309,6 +325,18 @@ def main() -> None:
       const meta = document.getElementById('recent-meta');
       if (!tbody) return;
       tbody.innerHTML = '';
+      const buildLinks = (row) => {
+        if (!row.icao) return '';
+        const icao = (row.icao || '').toUpperCase();
+        const mapLink = `/map?route_icao=${encodeURIComponent(icao)}`;
+        const adsbx = `https://globe.adsbexchange.com/?icao=${icao.toLowerCase()}`;
+        const fr24 = `https://www.flightradar24.com/data/aircraft/${icao.toLowerCase()}`;
+        return [
+          `<a class="chip" href="${mapLink}" target="_blank" rel="noreferrer noopener">Ver ruta</a>`,
+          `<a class="chip secondary" href="${adsbx}" target="_blank" rel="noreferrer noopener">ADSBx</a>`,
+          `<a class="chip secondary" href="${fr24}" target="_blank" rel="noreferrer noopener">FR24</a>`
+        ].join(' ');
+      };
       rows.forEach((row) => {
         const tr = document.createElement('tr');
         const coords = row.last_lat && row.last_lon ? (row.last_lat + ', ' + row.last_lon) : 'n/a';
@@ -326,6 +354,9 @@ def main() -> None:
           td.textContent = fmt(c);
           tr.appendChild(td);
         });
+        const actionTd = document.createElement('td');
+        actionTd.innerHTML = buildLinks(row);
+        tr.appendChild(actionTd);
         tbody.appendChild(tr);
       });
       if (meta) meta.textContent = 'Most recent ' + rows.length + ' aircraft from /api/aircraft/recent';

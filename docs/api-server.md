@@ -1,4 +1,4 @@
-# API Server (Postgres + FastAPI)
+﻿# API Server (Postgres + FastAPI)
 
 Run the database-backed API stack and feed it with live or simulated ADS-B data.
 
@@ -30,9 +30,16 @@ python -m apps.adsb_to_db --simulate 200
 ## API overview
 - `GET /api/aircraft/current?since_seconds=300`
 - `GET /api/aircraft/{icao}/history?hours=6`
+- `GET /api/aircraft/{icao}/route?start_utc=...&end_utc=...&limit=...` (all stored points)
 - `GET /api/aircraft/tracks?since_seconds=1800&max_points_per_aircraft=80&icaos=ABC,DEF`
 - `GET /api/health`
 - Map UI under `/map` (uses `api_static/` assets)
+
+### View the full route of one aircraft
+- Every stored point for a given ICAO:  
+  `GET /api/aircraft/{icao}/route`
+- Optional filters: `start_utc` and/or `end_utc` (ISO8601) to bound by date, and `limit` to trim results.
+- The `/map` page now has a "Full route ICAO" control that draws the full path using this endpoint.
 
 ## Export back to CSV for maps
 ```bash

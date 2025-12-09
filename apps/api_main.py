@@ -5,6 +5,7 @@ Lightweight HTTP API backed by Postgres.
 Endpoints:
 - GET /api/aircraft/current?since_seconds=300
 - GET /api/aircraft/{icao}/history?hours=6
+- GET /api/aircraft/{icao}/route?start_utc=...&end_utc=...&limit=...
 - GET /api/aircraft/tracks?since_seconds=1800&max_points_per_aircraft=80&icaos=ABC,DEF
 - GET /api/health
 
@@ -281,6 +282,82 @@ def history(icao: str, hours: Optional[int] = 6) -> dict:
     if not rows:
         raise HTTPException(status_code=404, detail="ICAO not found in window")
     return {"icao": icao.upper(), "count": len(rows), "positions": [enrich(r) for r in rows]}
+
+
+@app.get("/api/aircraft/{icao}/route")
+def full_route(
+    icao: str,
+    start_utc: Optional[datetime] = None,
+    end_utc: Optional[datetime] = None,
+    limit: Optional[int] = None,
+) -> dict:
+    """Return every stored point for an aircraft (optionally bounded)."""
+    icao = icao.strip().upper()
+    if limit is not None and limit <= 0:
+        raise HTTPException(status_code=400, detail="limit must be > 0 when provided")
+
+    filters = ["p.icao = %s", "p.lat IS NOT NULL", "p.lon IS NOT NULL"]
+    params: list = [icao]
+    if start_utc:
+        filters.append("p.ts >= %s")
+        params.append(start_utc)
+    if end_utc:
+        filters.append("p.ts <= %s")
+        params.append(end_utc)
+    where_clause = " AND ".join(filters)
+
+    limit_clause = ""
+    if limit:
+        limit_clause = " LIMIT %s"
+        params.append(limit)
+
+    rows = fetch_all(
+        f"""
+        SELECT p.icao,
+               a.last_flight AS flight,
+               p.ts,
+               p.lat,
+               p.lon,
+               p.altitude_ft,
+               p.speed_kts,
+               p.heading_deg,
+               p.squawk
+        FROM positions p
+        LEFT JOIN aircraft a ON a.icao = p.icao
+        WHERE {where_clause}
+        ORDER BY p.ts ASC{limit_clause}
+        """,
+        tuple(params),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="ICAO not found in database")
+
+    positions = [
+        {
+            "ts": row["ts"].isoformat() if isinstance(row["ts"], datetime) else row["ts"],
+            "lat": row["lat"],
+            "lon": row["lon"],
+            "altitude_ft": row["altitude_ft"],
+            "speed_kts": row["speed_kts"],
+            "heading_deg": row["heading_deg"],
+            "squawk": row["squawk"],
+        }
+        for row in rows
+    ]
+    meta = enrich({"icao": rows[0]["icao"], "flight": rows[0].get("flight")})
+    return {
+        "icao": meta.get("icao", icao),
+        "flight": meta.get("flight"),
+        "registration": meta.get("registration"),
+        "type": meta.get("type"),
+        "model": meta.get("model"),
+        "manufacturer": meta.get("manufacturer"),
+        "icon": meta.get("icon", "plane"),
+        "count": len(positions),
+        "start_ts": positions[0]["ts"],
+        "end_ts": positions[-1]["ts"],
+        "positions": positions,
+    }
 
 
 @app.get("/api/aircraft/tracks")
