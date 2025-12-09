@@ -12,16 +12,20 @@ Static map (Leaflet) at /map reading /api/aircraft/current every 5s.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
 import psycopg2
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+from src.lib.config import AIRCRAFT_DB_FILE
 
 try:
     from aircraft_db import get_icon_for_type, get_aircraft_info
@@ -32,6 +36,9 @@ except Exception:  # pragma: no cover
 DB_URL = os.getenv("ADSB_DB_URL")
 if not DB_URL:
     raise RuntimeError("ADSB_DB_URL is not set")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("adsb_api")
 
 app = FastAPI(title="ADS-B API", version="0.1.0")
 
@@ -47,13 +54,19 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 if not ASSETS_DIR.exists():
     ASSETS_DIR = Path(__file__).parent / ".." / "assets"
 
+AIRCRAFT_DB_URL = "https://raw.githubusercontent.com/wiedehopf/tar1090-db/csv/aircraft_db.csv"
+
 
 def fetch_all(query: str, params: tuple) -> list:
-    with psycopg2.connect(DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, params)
-            cols = [desc[0] for desc in cur.description]
-            return [dict(zip(cols, row)) for row in cur.fetchall()]
+    try:
+        with psycopg2.connect(DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                cols = [desc[0] for desc in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+    except Exception as exc:
+        logger.error("DB query failed: %s", exc)
+        raise
 
 
 def enrich(row: dict) -> dict:
@@ -72,6 +85,24 @@ def enrich(row: dict) -> dict:
         row["icon"] = "plane"
     return row
 
+
+def ensure_aircraft_db() -> None:
+    """Download aircraft_db.csv if missing so we can resolve icons."""
+    if AIRCRAFT_DB_FILE.exists():
+        return
+    try:
+        AIRCRAFT_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Downloading aircraft_db.csv from %s", AIRCRAFT_DB_URL)
+        resp = requests.get(AIRCRAFT_DB_URL, timeout=20)
+        resp.raise_for_status()
+        AIRCRAFT_DB_FILE.write_bytes(resp.content)
+        logger.info("Downloaded aircraft_db to %s", AIRCRAFT_DB_FILE)
+    except Exception as exc:
+        logger.warning("Could not download aircraft_db.csv: %s", exc)
+
+
+# Ensure DB file exists so icon/type enrichment works when available
+ensure_aircraft_db()
 
 @app.get("/api/health")
 def health():

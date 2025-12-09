@@ -14,7 +14,7 @@
     body { margin:0; padding:0; font-family: "Segoe UI", sans-serif; background:var(--bg); color:#e5e7eb; }
     #map { width: 100vw; height: 100vh; }
     .leaflet-control-container .leaflet-top.leaflet-left { margin-top: 50px; }
-    .banner { position: fixed; top: 10px; left: 10px; z-index: 1000; background: var(--panel); padding: 10px 12px; border-radius: 10px; border:1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }
+    .banner { position: fixed; top: 10px; left: 10px; z-index: 1000; background: var(--panel); padding: 10px 12px; border-radius: 10px; border:1px solid rgba(255,255,255,0.15); backdrop-filter: blur(12px); box-shadow:0 10px 30px rgba(0,0,0,0.5); }
     .banner h1 { margin: 0; font-size: 16px; }
     .banner .meta { font-size: 12px; color:var(--muted); }
     .legend { margin-top:6px; font-size:11px; color:var(--muted); }
@@ -37,13 +37,28 @@
     </div>
   </div>
   <div id="map"></div>
+  <div class="control" style="position:fixed; top:10px; right:10px; z-index:1000; background: rgba(0,0,0,0.55); padding:10px 12px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; backdrop-filter: blur(10px);">
+    <label for="since">Ventana (seg):</label>
+    <input id="since" type="number" value="300" min="30" step="30" style="width:90px; margin-left:6px;" />
+    <button id="apply" style="margin-left:6px;">Aplicar</button>
+  </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([0,0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19
-    }).addTo(map);
+    const baseDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap & CartoDB'
+    });
+    const baseLight = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    });
+    const baseSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Tiles &copy; Esri'
+    });
+    const map = L.map('map', { layers: [baseDark] }).setView([0,0], 2);
+    L.control.layers({ "Dark": baseDark, "Light": baseLight, "Satellite": baseSatellite }).addTo(map);
     const markers = {};
 
     const iconCache = new Map();
@@ -94,9 +109,16 @@
       return `${Math.round(num)} ${unit}`;
     }
 
+    let windowSeconds = 300;
+    document.getElementById('apply').addEventListener('click', () => {
+      const val = parseInt(document.getElementById('since').value, 10);
+      if (!isNaN(val) && val > 0) windowSeconds = val;
+      update();
+    });
+
     async function update() {
       try {
-        const resp = await fetch('/api/aircraft/current');
+        const resp = await fetch(`/api/aircraft/current?since_seconds=${windowSeconds}`);
         if (!resp.ok) throw new Error(resp.statusText);
         const data = await resp.json();
         document.getElementById('status').textContent = `Aviones: ${data.length} · ${new Date().toLocaleTimeString()}`;
