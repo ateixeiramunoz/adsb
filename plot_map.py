@@ -368,20 +368,56 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = None,
     .aircraft-icon svg {
         filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.5));
     }
+    .leaflet-popup .leaflet-popup-content-wrapper,
+    .leaflet-popup-content-wrapper {
+        background: rgba(0, 0, 0, 0.6) !important;
+        background-color: rgba(0, 0, 0, 0.6) !important;
+        backdrop-filter: blur(20px) saturate(180%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+        border-radius: 14px !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+        color: #fff !important;
+    }
+    .leaflet-popup .leaflet-popup-content,
+    .leaflet-popup-content {
+        margin: 14px 16px !important;
+        min-width: 260px !important;
+        color: #fff !important;
+    }
+    .leaflet-popup .leaflet-popup-tip-container .leaflet-popup-tip,
+    .leaflet-popup-tip {
+        background: rgba(0, 0, 0, 0.6) !important;
+        background-color: rgba(0, 0, 0, 0.6) !important;
+        box-shadow: none !important;
+    }
+    .leaflet-popup-close-button {
+        color: #fff !important;
+    }
+    .leaflet-popup-close-button:hover {
+        color: #ccc !important;
+    }
     </style>
     '''
     m.get_root().html.add_child(folium.Element(icon_css))
 
-    # Add title
+    # Add title with dark glassmorphism style
     title_html = f'''
     <h3 id="map-title" style="position:fixed;
                top:10px;left:50px;width:320px;z-index:1000;
-               background-color:white;padding:10px;
-               border:2px solid grey;border-radius:5px;
-               font-size:14px">
+               background:rgba(0,0,0,0.6);
+               backdrop-filter:blur(20px) saturate(180%);
+               -webkit-backdrop-filter:blur(20px) saturate(180%);
+               padding:12px 16px;
+               border:1px solid rgba(255,255,255,0.15);
+               border-radius:14px;
+               box-shadow:0 8px 32px rgba(0,0,0,0.4);
+               color:#fff;
+               font-size:14px;
+               font-weight:normal">
     {title}<br>
-    <span id="map-stats" style="font-size:12px">Aircraft: {len(set(p["icao"] for p in positions))} | Positions: {len(positions)}</span><br>
-    <span style="font-size:10px;color:#666;">Auto-updating every 1s</span>
+    <span id="map-stats" style="font-size:12px;color:#fff;">Aircraft: {len(set(p["icao"] for p in positions))} | Positions: {len(positions)}</span><br>
+    <span style="font-size:10px;color:rgba(255,255,255,0.6);">Auto-updating every 1s</span>
     </h3>
     '''
     m.get_root().html.add_child(folium.Element(title_html))
@@ -576,24 +612,41 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = None,
 
             if (isCurrent) {{
                 const acInfo = getAircraftInfo(icao);
-                let popup = `<b>ICAO:</b> ${{latest.icao}}<br>`;
-                if (acInfo && acInfo.registration) popup += `<b>Reg:</b> ${{acInfo.registration}}<br>`;
-                if (acInfo && acInfo.type) popup += `<b>Type:</b> ${{acInfo.type}}<br>`;
-                if (acInfo && acInfo.model) popup += `<b>Model:</b> ${{acInfo.model}}<br>`;
-                if (latest.flight) popup += `<b>Flight:</b> ${{latest.flight}}<br>`;
-                if (latest.altitude_ft) popup += `<b>Altitude:</b> ${{latest.altitude_ft.toLocaleString()}} ft (${{Math.round(latest.altitude_ft * 0.3048).toLocaleString()}} m)<br>`;
-                if (latest.speed_kts) popup += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts (${{Math.round(latest.speed_kts * 1.852)}} km/h)<br>`;
-                if (latest.heading_deg != null) popup += `<b>Heading:</b> ${{Math.round(latest.heading_deg)}}°<br>`;
-                if (latest.squawk) popup += `<b>Squawk:</b> ${{latest.squawk}}<br>`;
-                if (latest.timestamp_utc) popup += `<b>Spotted:</b> ${{formatTimeAgo(latest.timestamp_utc)}}<br>`;
-                popup += `<b>Distance:</b> ${{formatDistance(calculate3DDistance(latest.lat, latest.lon, latest.altitude_ft))}}`;
 
-                // External tracking links
-                popup += `<br><br><b>Track:</b> `;
-                popup += `<a href="https://globe.adsbexchange.com/?icao=${{latest.icao.toLowerCase()}}" target="_blank" style="color:#0066cc;">ADSBexchange</a>`;
+                // Build popup with three sections
+                let popup = '<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px;">';
+
+                // Section 1: Aircraft Data (static info)
+                popup += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed;">';
+                popup += `<tr><td style="width: 50%; padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">ICAO</td><td style="width: 50%; padding: 2px 0; font-weight: 600; color: #fff;">${{latest.icao}}</td></tr>`;
+                if (latest.flight) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Flight</td><td style="padding: 2px 0; font-weight: 600; color: #fff;">${{latest.flight}}</td></tr>`;
+                if (acInfo && acInfo.registration) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Registration</td><td style="padding: 2px 0; color: #fff;">${{acInfo.registration}}</td></tr>`;
+                if (acInfo && acInfo.type) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Type</td><td style="padding: 2px 0; color: #fff;">${{acInfo.type}}</td></tr>`;
+                if (acInfo && acInfo.model) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Model</td><td style="padding: 2px 0; color: #fff;">${{acInfo.model}}</td></tr>`;
+                popup += '</table>';
+
+                // Divider
+                popup += '<hr style="border: none; border-top: 1px solid rgba(255,255,255,0.2); margin: 6px 0;">';
+
+                // Section 2: Live Data (dynamic info)
+                popup += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed;">';
+                if (latest.timestamp_utc) popup += `<tr><td style="width: 50%; padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Spotted</td><td style="width: 50%; padding: 2px 0; color: #fff;">${{formatTimeAgo(latest.timestamp_utc)}}</td></tr>`;
+                popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Distance</td><td style="padding: 2px 0; color: #fff;">${{formatDistance(calculate3DDistance(latest.lat, latest.lon, latest.altitude_ft))}}</td></tr>`;
+                if (latest.altitude_ft) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Altitude</td><td style="padding: 2px 0; color: #fff;">${{latest.altitude_ft.toLocaleString()}} ft <span style="color:rgba(255,255,255,0.5);">(${{Math.round(latest.altitude_ft * 0.3048).toLocaleString()}} m)</span></td></tr>`;
+                if (latest.speed_kts) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Speed</td><td style="padding: 2px 0; color: #fff;">${{Math.round(latest.speed_kts)}} kts <span style="color:rgba(255,255,255,0.5);">(${{Math.round(latest.speed_kts * 1.852)}} km/h)</span></td></tr>`;
+                if (latest.heading_deg != null) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Heading</td><td style="padding: 2px 0; color: #fff;">${{Math.round(latest.heading_deg)}}°</td></tr>`;
+                if (latest.squawk) popup += `<tr><td style="padding: 2px 4px 2px 0; color: rgba(255,255,255,0.6);">Squawk</td><td style="padding: 2px 0; color: #fff;">${{latest.squawk}}</td></tr>`;
+                popup += '</table>';
+
+                // Section 3: Tracking Links
+                popup += '<hr style="border: none; border-top: 1px solid rgba(255,255,255,0.2); margin: 6px 0;">';
+                popup += '<div style="text-align: center; padding-top: 2px;">';
+                popup += `<a href="https://globe.adsbexchange.com/?icao=${{latest.icao.toLowerCase()}}" target="_blank" style="color:#6cb8ff; text-decoration:none; margin-right: 12px;">ADSBexchange</a>`;
                 if (acInfo && acInfo.registration) {{
-                    popup += ` | <a href="https://www.flightradar24.com/data/aircraft/${{acInfo.registration.toLowerCase()}}" target="_blank" style="color:#0066cc;">FlightRadar24</a>`;
+                    popup += `<a href="https://www.flightradar24.com/data/aircraft/${{acInfo.registration.toLowerCase()}}" target="_blank" style="color:#6cb8ff; text-decoration:none;">FlightRadar24</a>`;
                 }}
+                popup += '</div>';
+                popup += '</div>';
 
                 if (currentMarkers[icao]) {{
                     currentMarkers[icao].setLatLng([latest.lat, latest.lon]);
