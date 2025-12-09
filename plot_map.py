@@ -657,6 +657,30 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
         }}
     }})();
     
+    function formatTimeAgo(timestamp_utc) {{
+        // Convert ISO timestamp to "now" or "X seconds/minutes ago" format
+        if (!timestamp_utc) return '';
+        try {{
+            const posTime = new Date(timestamp_utc);
+            const now = new Date();
+            const diffMs = now - posTime;
+            const diffSec = Math.floor(diffMs / 1000);
+
+            if (diffSec < 5) return 'now';
+            if (diffSec < 60) return `${{diffSec}} seconds ago`;
+
+            const diffMin = Math.floor(diffSec / 60);
+            if (diffMin === 1) return '1 minute ago';
+            if (diffMin < 60) return `${{diffMin}} minutes ago`;
+
+            const diffHr = Math.floor(diffMin / 60);
+            if (diffHr === 1) return '1 hour ago';
+            return `${{diffHr}} hours ago`;
+        }} catch(e) {{
+            return timestamp_utc;
+        }}
+    }}
+
     function getAltitudeColor(altitude_ft) {{
         // Returns HEX color for SVG fill based on altitude
         if (altitude_ft === null || altitude_ft === undefined) return '#808080';  // gray
@@ -869,7 +893,7 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
                 if (latest.speed_kts) popupText += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts<br>`;
                 if (latest.heading_deg !== null && latest.heading_deg !== undefined) popupText += `<b>Heading:</b> ${{Math.round(latest.heading_deg)}}°<br>`;
                 if (latest.squawk) popupText += `<b>Squawk:</b> ${{latest.squawk}}<br>`;
-                if (latest.timestamp_utc) popupText += `<b>Time:</b> ${{latest.timestamp_utc}}`;
+                if (latest.timestamp_utc) popupText += `<b>Spotted:</b> ${{formatTimeAgo(latest.timestamp_utc)}}`;
 
                 // Update existing marker or create new one
                 if (currentMarkers[icao]) {{
