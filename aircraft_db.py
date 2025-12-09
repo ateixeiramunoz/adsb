@@ -81,6 +81,39 @@ AIRLINER_TYPES = {
     'AN24', 'AN26', 'IL76', 'IL96', 'TU15', 'TU20', 'TU21', 'TU22',
 }
 
+# Business jets / Private jets - checked BEFORE light aircraft
+BUSINESS_JET_TYPES = {
+    # Cessna Citation series
+    'C500', 'C501', 'C510', 'C525', 'C526', 'C528', 'C550', 'C551', 'C560',
+    'C56X', 'C680', 'C68A', 'C700', 'C750', 'CJ1', 'CJ2', 'CJ3', 'CJ4',
+    'C25A', 'C25B', 'C25C', 'C25M',
+    # Learjet
+    'LJ23', 'LJ24', 'LJ25', 'LJ28', 'LJ31', 'LJ35', 'LJ36', 'LJ40', 'LJ45',
+    'LJ55', 'LJ60', 'LJ70', 'LJ75',
+    # Gulfstream
+    'G100', 'G150', 'G200', 'G280', 'G350', 'G400', 'G450', 'G500', 'G550',
+    'G600', 'G650', 'G700', 'G800', 'GALX', 'GAL5', 'GLF2', 'GLF3', 'GLF4',
+    'GLF5', 'GLF6', 'GLEX',
+    # Bombardier Global/Challenger
+    'GL5T', 'GL7T', 'GLEX', 'CL30', 'CL35', 'CL60', 'CL65', 'BD10',
+    'BD70', 'ASTR', 'G280',
+    # Dassault Falcon
+    'F900', 'F2TH', 'FA10', 'FA20', 'FA50', 'FA7X', 'FA8X', 'F6X',
+    'FALC', 'F90',
+    # Embraer business jets
+    'E35L', 'E50P', 'E55P', 'E545', 'E550', 'LEGA', 'PH10', 'PH30',
+    # Pilatus PC-24
+    'PC24',
+    # HondaJet
+    'HDJT',
+    # Beechcraft jets
+    'BE40', 'BE4W', 'PRM1', 'H25A', 'H25B', 'H25C', 'HA4T',
+    # Eclipse
+    'EA50',
+    # Cirrus Vision Jet
+    'SF50',
+}
+
 LIGHT_AIRCRAFT_PATTERNS = {
     # Cessna
     'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8',
@@ -131,6 +164,11 @@ def get_icon_for_type(type_code: str) -> str:
     for glider_type in GLIDER_TYPES:
         if type_upper.startswith(glider_type) or type_upper == glider_type:
             return ICON_GLIDER
+
+    # Check business jets BEFORE light aircraft (Citations, Learjets, etc.)
+    for jet_type in BUSINESS_JET_TYPES:
+        if type_upper.startswith(jet_type) or type_upper == jet_type:
+            return ICON_AIRLINER
 
     # Check airliners
     for airliner_type in AIRLINER_TYPES:
