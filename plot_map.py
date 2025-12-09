@@ -40,6 +40,242 @@ def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> flo
     # Normalize to 0-360
     return (bearing_deg + 360) % 360
 
+
+# Home location configuration
+HOME_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "home_location.json")
+_cached_home_location = None
+
+
+def geocode_address(address: str) -> Optional[dict]:
+    """
+    Geocode an address using Nominatim (OpenStreetMap).
+    Returns dict with lat, lon, display_name or None if failed.
+    """
+    import urllib.request
+    import urllib.parse
+
+    try:
+        # Use Nominatim geocoding API (free, no API key needed)
+        encoded_address = urllib.parse.quote(address)
+        url = f"https://nominatim.openstreetmap.org/search?q={encoded_address}&format=json&limit=1"
+
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'ADS-B Tracker/1.0 (personal use)'
+        })
+
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode())
+            if data and len(data) > 0:
+                result = data[0]
+                return {
+                    'lat': float(result['lat']),
+                    'lon': float(result['lon']),
+                    'display_name': result.get('display_name', address)
+                }
+    except Exception as e:
+        print(f"Geocoding failed: {e}", file=sys.stderr)
+
+    return None
+
+
+def get_elevation(lat: float, lon: float) -> Optional[float]:
+    """
+    Get elevation for coordinates using Open-Elevation API.
+    Returns elevation in meters or None if failed.
+    """
+    import urllib.request
+
+    try:
+        # Use Open-Elevation API (free, no API key needed)
+        url = f"https://api.open-elevation.com/api/v1/lookup?locations={lat},{lon}"
+
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'ADS-B Tracker/1.0 (personal use)'
+        })
+
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode())
+            if data and 'results' in data and len(data['results']) > 0:
+                return float(data['results'][0]['elevation'])
+    except Exception as e:
+        print(f"Elevation lookup failed: {e}", file=sys.stderr)
+
+    return None
+
+
+def setup_home_location() -> dict:
+    """
+    Interactive setup for home location.
+    Prompts user for address, geocodes it, and gets elevation.
+    Returns dict with lat, lon, elevation_m, address.
+    """
+    print("\n" + "=" * 60)
+    print("HOME LOCATION SETUP")
+    print("=" * 60)
+    print("\nEnter your home address or location name.")
+    print("Examples:")
+    print("  - 123 Main Street, New York, NY")
+    print("  - 10 Downing Street, London, UK")
+    print("  - Piazza del Duomo, Milan, Italy")
+    print()
+
+    address = input("Enter your location: ").strip()
+
+    if not address:
+        print("No address provided, using default location.")
+        return None
+
+    print(f"\nGeocoding '{address}'...")
+    geo_result = geocode_address(address)
+
+    if not geo_result:
+        print("Could not find that location. Please try again with a different address.")
+        return None
+
+    lat, lon = geo_result['lat'], geo_result['lon']
+    display_name = geo_result['display_name']
+
+    print(f"Found: {display_name}")
+    print(f"Coordinates: {lat:.6f}, {lon:.6f}")
+
+    print("\nLooking up elevation...")
+    elevation = get_elevation(lat, lon)
+
+    if elevation is not None:
+        elevation_ft = elevation * 3.28084
+        print(f"Elevation: {elevation:.1f} m ({elevation_ft:.0f} ft)")
+    else:
+        print("Could not determine elevation, using 0m (sea level)")
+        elevation = 0.0
+
+    # Confirm with user
+    print()
+    confirm = input("Is this correct? (y/n): ").strip().lower()
+
+    if confirm != 'y':
+        print("Setup cancelled.")
+        return None
+
+    home_config = {
+        'address': address,
+        'display_name': display_name,
+        'lat': lat,
+        'lon': lon,
+        'elevation_m': elevation,
+        'elevation_ft': elevation * 3.28084
+    }
+
+    # Save to config file
+    try:
+        with open(HOME_CONFIG_FILE, 'w') as f:
+            json.dump(home_config, f, indent=2)
+        print(f"\nHome location saved to: {HOME_CONFIG_FILE}")
+    except Exception as e:
+        print(f"Warning: Could not save config file: {e}")
+
+    return home_config
+
+
+def get_home_location() -> dict:
+    """
+    Get home location from config file, environment variables, or prompt user.
+    Returns dict with lat, lon, elevation_m, elevation_ft, address.
+    """
+    global _cached_home_location
+
+    # Return cached location if available
+    if _cached_home_location:
+        return _cached_home_location
+
+    # Check environment variables first (for backward compatibility)
+    env_lat = os.getenv("ADSB_HOME_LAT")
+    env_lon = os.getenv("ADSB_HOME_LON")
+    env_elev = os.getenv("ADSB_HOME_ELEVATION_M")
+
+    if env_lat and env_lon:
+        try:
+            lat = float(env_lat)
+            lon = float(env_lon)
+            elev = float(env_elev) if env_elev else 0.0
+            _cached_home_location = {
+                'lat': lat,
+                'lon': lon,
+                'elevation_m': elev,
+                'elevation_ft': elev * 3.28084,
+                'address': 'Environment variables',
+                'display_name': f'{lat}, {lon}'
+            }
+            return _cached_home_location
+        except ValueError:
+            pass
+
+    # Check config file
+    if os.path.exists(HOME_CONFIG_FILE):
+        try:
+            with open(HOME_CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+                if 'lat' in config and 'lon' in config:
+                    _cached_home_location = config
+                    print(f"Loaded home location: {config.get('display_name', 'Unknown')}")
+                    return _cached_home_location
+        except Exception as e:
+            print(f"Warning: Could not load config file: {e}", file=sys.stderr)
+
+    # No config found - run interactive setup if running interactively
+    if sys.stdin.isatty():
+        print("\nNo home location configured.")
+        setup = input("Would you like to set up your home location now? (y/n): ").strip().lower()
+        if setup == 'y':
+            result = setup_home_location()
+            if result:
+                _cached_home_location = result
+                return _cached_home_location
+
+    # Fallback default (Central London - Big Ben)
+    print("Using default location (Central London)")
+    _cached_home_location = {
+        'lat': 51.5007,
+        'lon': -0.1246,
+        'elevation_m': 5.0,
+        'elevation_ft': 16.4,
+        'address': 'Default',
+        'display_name': 'Central London, UK'
+    }
+    return _cached_home_location
+
+
+def calculate_3d_distance(lat1: float, lon1: float, alt1_m: float,
+                          lat2: float, lon2: float, alt2_m: float) -> float:
+    """
+    Calculate 3D distance between two points accounting for altitude.
+    Returns distance in kilometers.
+
+    lat1, lon1, alt1_m: First point (e.g., home)
+    lat2, lon2, alt2_m: Second point (e.g., aircraft)
+    """
+    # Earth's radius in km
+    R = 6371.0
+
+    # Convert to radians
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+
+    # Haversine formula for horizontal distance
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    horizontal_distance_km = R * c
+
+    # Altitude difference in km
+    alt_diff_km = (alt2_m - alt1_m) / 1000.0
+
+    # 3D distance using Pythagorean theorem
+    distance_3d_km = math.sqrt(horizontal_distance_km ** 2 + alt_diff_km ** 2)
+
+    return distance_3d_km
+
+
 # Import aircraft database for type lookup
 try:
     from aircraft_db import get_aircraft_info, get_icon_for_type, AircraftDatabase
@@ -146,11 +382,16 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
         return
 
     # Center map on home position, zoomed out to see all aircraft
-    home_lat = float(os.getenv("ADSB_HOME_LAT", "46.0359"))
-    home_lon = float(os.getenv("ADSB_HOME_LON", "8.9661"))
+    home = get_home_location()
+    home_lat = home['lat']
+    home_lon = home['lon']
+    home_elevation_m = home.get('elevation_m', 0)
+    home_elevation_ft = home.get('elevation_ft', 0)
+    home_display_name = home.get('display_name', 'Home')
     center_lat = home_lat
     center_lon = home_lon
-    print(f"Centering map on home position: {center_lat}, {center_lon}")
+    print(f"Home location: {home_display_name}")
+    print(f"Coordinates: {center_lat}, {center_lon} | Elevation: {home_elevation_m:.0f}m ({home_elevation_ft:.0f}ft)")
 
     # Create map
     m = folium.Map(
@@ -163,51 +404,43 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     folium.TileLayer("CartoDB positron").add_to(m)
     folium.TileLayer("CartoDB dark_matter").add_to(m)
     
-    # Add home position marker if specified (default to Via Pezzolo 6, Cannobio, Ticino)
-    # Note: This is likely Canobbio in Ticino, Switzerland (not Cannobio, Italy)
-    # Using approximate coordinates for Canobbio, Ticino - user should provide exact coordinates
-    home_lat = os.getenv("ADSB_HOME_LAT", "46.0359")
-    home_lon = os.getenv("ADSB_HOME_LON", "8.9661")
-    home_lat_str = ""
-    home_lon_str = ""
-    if home_lat and home_lon:
-        try:
-            home_lat_float = float(home_lat)
-            home_lon_float = float(home_lon)
-            home_lat_str = str(home_lat_float)
-            home_lon_str = str(home_lon_float)
-            # Use DivIcon for custom "H" icon
-            from folium import DivIcon
-            home_icon_html = '''
-            <div style="
-                background-color: red;
-                border: 2px solid white;
-                border-radius: 50%;
-                width: 30px;
-                height: 30px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-weight: bold;
-                font-size: 18px;
-                color: white;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            ">H</div>
-            '''
-            home_icon = DivIcon(
-                html=home_icon_html,
-                icon_size=(30, 30),
-                icon_anchor=(15, 15),
-                className='home-marker'  # Important: allows JavaScript to identify and preserve this marker
-            )
-            folium.Marker(
-                location=[home_lat_float, home_lon_float],
-                popup=folium.Popup("<b>Home Position</b>", max_width=200),
-                tooltip="Home",
-                icon=home_icon,
-            ).add_to(m)
-        except (ValueError, TypeError):
-            pass  # Skip if coordinates are invalid
+    # Add home position marker using configured location
+    home_lat_str = str(home_lat)
+    home_lon_str = str(home_lon)
+    home_elevation_m_str = str(home_elevation_m)
+    home_elevation_ft_str = str(home_elevation_ft)
+
+    # Use DivIcon for custom "H" icon
+    from folium import DivIcon
+    home_icon_html = '''
+    <div style="
+        background-color: red;
+        border: 2px solid white;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 18px;
+        color: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    ">H</div>
+    '''
+    home_icon = DivIcon(
+        html=home_icon_html,
+        icon_size=(30, 30),
+        icon_anchor=(15, 15),
+        class_name='home-marker'
+    )
+    home_popup_html = f"<b>Home Position</b><br>{home_display_name}<br>Elevation: {home_elevation_m:.0f}m ({home_elevation_ft:.0f}ft)"
+    folium.Marker(
+        location=[home_lat, home_lon],
+        popup=folium.Popup(home_popup_html, max_width=300),
+        tooltip="Home",
+        icon=home_icon,
+    ).add_to(m)
     
     # Determine which aircraft are currently visible (have recent positions)
     # If current_icaos is provided, use it; otherwise determine from timestamps
@@ -469,6 +702,9 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     
     # Add JavaScript for dynamic marker updates
     # Embed positions data directly in HTML to avoid CORS issues with file:// protocol
+    # Escape home display name for JavaScript string
+    home_display_name_escaped = home_display_name.replace("'", "\\'")
+
     update_js = f'''
     <script>
     // Embedded positions data (updated when HTML is regenerated or via HTTP fetch)
@@ -482,6 +718,52 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
 
     // SVG icons loaded from files (pointing UP by default, rotated by heading)
     const SVG_ICONS = {svg_icons_json};
+
+    // Home location for distance calculations
+    const HOME_LOCATION = {{
+        lat: {home_lat},
+        lon: {home_lon},
+        elevation_m: {home_elevation_m},
+        elevation_ft: {home_elevation_ft},
+        name: '{home_display_name_escaped}'
+    }};
+
+    // Calculate 3D distance from home to aircraft (in km)
+    function calculate3DDistance(aircraft_lat, aircraft_lon, aircraft_alt_ft) {{
+        const R = 6371.0;  // Earth's radius in km
+
+        // Convert to radians
+        const lat1 = HOME_LOCATION.lat * Math.PI / 180;
+        const lat2 = aircraft_lat * Math.PI / 180;
+        const dlat = (aircraft_lat - HOME_LOCATION.lat) * Math.PI / 180;
+        const dlon = (aircraft_lon - HOME_LOCATION.lon) * Math.PI / 180;
+
+        // Haversine formula for horizontal distance
+        const a = Math.sin(dlat / 2) * Math.sin(dlat / 2) +
+                  Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2) * Math.sin(dlon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const horizontalDistKm = R * c;
+
+        // Altitude difference in km (convert aircraft altitude from ft to m, then to km)
+        const aircraftAltM = (aircraft_alt_ft || 0) * 0.3048;
+        const altDiffKm = (aircraftAltM - HOME_LOCATION.elevation_m) / 1000.0;
+
+        // 3D distance using Pythagorean theorem
+        const distance3D = Math.sqrt(horizontalDistKm * horizontalDistKm + altDiffKm * altDiffKm);
+
+        return distance3D;
+    }}
+
+    // Format distance for display
+    function formatDistance(distanceKm) {{
+        if (distanceKm < 1) {{
+            return `${{Math.round(distanceKm * 1000)}} m`;
+        }} else if (distanceKm < 10) {{
+            return `${{distanceKm.toFixed(2)}} km`;
+        }} else {{
+            return `${{distanceKm.toFixed(1)}} km`;
+        }}
+    }}
 
     let markerLayer = null;
     let lineLayer = null;
@@ -608,7 +890,7 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
                             }});
                             homeMarker = L.marker([lat, lon], {{
                                 icon: homeIcon
-                            }}).bindPopup('<b>Home Position<br>Cannobio, Ticino</b>');
+                            }}).bindPopup('<b>Home Position</b>');
                             mapObj.addLayer(homeMarker);
                             console.log('HOME MARKER ADDED at:', lat, lon);
                         }} else {{
@@ -818,7 +1100,7 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
                             }});
                             homeMarker = L.marker([lat, lon], {{
                                 icon: homeIcon
-                            }}).bindPopup('<b>Home Position<br>Cannobio, Ticino</b>');
+                            }}).bindPopup('<b>Home Position</b>');
                             mapObj.addLayer(homeMarker);
                             console.log('HOME MARKER RE-CREATED at:', lat, lon);
                         }}
@@ -909,7 +1191,11 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
                 if (latest.speed_kts) popupText += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts<br>`;
                 if (latest.heading_deg !== null && latest.heading_deg !== undefined) popupText += `<b>Heading:</b> ${{Math.round(latest.heading_deg)}}°<br>`;
                 if (latest.squawk) popupText += `<b>Squawk:</b> ${{latest.squawk}}<br>`;
-                if (latest.timestamp_utc) popupText += `<b>Spotted:</b> ${{formatTimeAgo(latest.timestamp_utc)}}`;
+                if (latest.timestamp_utc) popupText += `<b>Spotted:</b> ${{formatTimeAgo(latest.timestamp_utc)}}<br>`;
+
+                // Calculate and add 3D distance from home
+                const distance3D = calculate3DDistance(latest.lat, latest.lon, latest.altitude_ft);
+                popupText += `<b>Distance:</b> ${{formatDistance(distance3D)}}`;
 
                 // Update existing marker or create new one
                 if (currentMarkers[icao]) {{
@@ -1045,8 +1331,68 @@ Examples:
         default=None,
         help="Home position longitude (or set ADSB_HOME_LON env var)"
     )
-    
+    parser.add_argument(
+        "--setup-home",
+        action="store_true",
+        help="Interactive setup for home location (geocode address, get elevation)"
+    )
+    parser.add_argument(
+        "--home-address",
+        type=str,
+        default=None,
+        help="Set home location by address (geocode and save). Example: --home-address 'Milan, Italy'"
+    )
+
     args = parser.parse_args()
+
+    # Handle --home-address flag (non-interactive)
+    if args.home_address:
+        print(f"Geocoding '{args.home_address}'...")
+        geo_result = geocode_address(args.home_address)
+        if not geo_result:
+            print("Could not find that location.")
+            sys.exit(1)
+
+        lat, lon = geo_result['lat'], geo_result['lon']
+        display_name = geo_result['display_name']
+        print(f"Found: {display_name}")
+        print(f"Coordinates: {lat:.6f}, {lon:.6f}")
+
+        print("Looking up elevation...")
+        elevation = get_elevation(lat, lon)
+        if elevation is None:
+            print("Could not determine elevation, using 0m")
+            elevation = 0.0
+        else:
+            print(f"Elevation: {elevation:.1f}m ({elevation * 3.28084:.0f}ft)")
+
+        home_config = {
+            'address': args.home_address,
+            'display_name': display_name,
+            'lat': lat,
+            'lon': lon,
+            'elevation_m': elevation,
+            'elevation_ft': elevation * 3.28084
+        }
+
+        with open(HOME_CONFIG_FILE, 'w') as f:
+            json.dump(home_config, f, indent=2)
+
+        print(f"\nHome location saved to: {HOME_CONFIG_FILE}")
+        sys.exit(0)
+
+    # Handle --setup-home flag (interactive)
+    if args.setup_home:
+        result = setup_home_location()
+        if result:
+            print("\nHome location configured successfully!")
+            print(f"  Address: {result['address']}")
+            print(f"  Location: {result['display_name']}")
+            print(f"  Coordinates: {result['lat']:.6f}, {result['lon']:.6f}")
+            print(f"  Elevation: {result['elevation_m']:.1f}m ({result['elevation_ft']:.0f}ft)")
+        else:
+            print("\nHome location setup cancelled or failed.")
+        sys.exit(0)
     
     # Determine CSV file
     if args.csv:

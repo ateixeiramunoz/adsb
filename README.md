@@ -1,246 +1,262 @@
-# ADS-B Data Collection Toolchain
+# ADS-B Aircraft Tracker
 
-A portable Python toolchain for collecting, storing, and serving ADS-B aircraft position data from dump1090. Designed to run identically on macOS, Linux, and Raspberry Pi.
+A portable Python toolchain for collecting, visualizing, and tracking ADS-B aircraft position data. Features interactive maps with real-time updates, aircraft type detection, altitude-based color gradients, and 3D distance calculations.
 
-## Overview
+## Features
 
-This project provides:
+- **Real-time ADS-B data collection** from dump1090
+- **Interactive map visualization** with Folium/Leaflet
+- **Aircraft type detection** using a 500k+ aircraft database (ICAO hex lookup)
+- **Custom SVG icons** for different aircraft types (airliner, helicopter, light aircraft, glider)
+- **Altitude-based color gradients** (orange → yellow → green → cyan → blue → purple)
+- **Heading-aware icons** that rotate to show flight direction
+- **Home location configuration** with address geocoding and elevation lookup
+- **3D distance calculation** accounting for altitude differences
+- **Auto-updating maps** that refresh without page reload
 
-1. **CSV Logger** (Step 1 - MVP): Collects aircraft positions from dump1090 and logs to CSV
-2. **Database Logger** (Step 2): Stores positions in PostgreSQL for long-term storage
-3. **HTTP API** (Step 3): Serves current positions and historical trajectories for Unreal Engine integration
+## Quick Start
 
-## Prerequisites
-
-- Python 3.9 or higher
-- `dump1090` installed and available in PATH
-- RTL-SDR dongle and antenna (for receiving ADS-B signals)
-
-## Quick Start - Step 1 (CSV Logger)
-
-### One Command to Run Everything
-
-Simply run:
+### 1. Start Data Collection
 
 ```bash
-./adsb.sh csv
+./adsb.sh
 ```
 
-That's it! The script will:
-- Check if dump1090 is available
-- Start dump1090 in the background (if not already running)
-- Wait for it to be ready
-- Start the CSV logger
-- Automatically clean up dump1090 when you press Ctrl+C
+This starts dump1090 (if not running) and begins collecting ADS-B data to CSV files.
 
-### Verify Output
-
-The script creates two CSV files:
-
-1. **Historical positions** (`adsb_history.csv`): All position records (append-only)
-2. **Current positions** (`adsb_current.csv`): Latest position per aircraft seen in the last 60 seconds (snapshot, updated continuously)
-
-Check the historical file:
+### 2. Set Your Home Location
 
 ```bash
-head -20 adsb_history.csv
+python3 plot_map.py --home-address "Your Address, City, Country"
 ```
 
-Or watch it in real-time:
+Example:
+```bash
+python3 plot_map.py --home-address "10 Downing Street, London, UK"
+```
+
+This geocodes your address, looks up the elevation, and saves it for distance calculations.
+
+### 3. View the Map
+
+Open `adsb_map.html` in your browser. The map shows:
+- Aircraft positions with type-specific icons
+- Color-coded by altitude
+- Trajectory lines showing flight paths
+- Click any aircraft to see details including distance from home
+
+## Installation
+
+### Prerequisites
+
+- Python 3.9+
+- `dump1090` installed and in PATH
+- RTL-SDR dongle with antenna
+
+### Install Dependencies
 
 ```bash
-tail -f adsb_history.csv
+pip install -r requirements.txt
 ```
 
-Check the current positions snapshot:
+### Download Aircraft Database (Optional but Recommended)
+
+The aircraft database enables type detection and registration lookup:
 
 ```bash
-cat adsb_current.csv
-```
-
-You should see rows like:
-
-```csv
-timestamp_utc,icao,flight,lat,lon,altitude_ft,speed_kts,heading_deg,squawk
-2025-12-07T17:01:58.400000+00:00,3C5EF2,EWG4TV,45.630,8.936,11100,376,158,2531
-...
-```
-
-The current CSV contains one row per aircraft seen in the last 60 seconds (latest position), while the historical CSV contains all positions over time. Aircraft that haven't been seen recently are automatically filtered out of the current CSV.
-
-## Configuration
-
-All configuration is done via environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DUMP1090_CMD` | `dump1090` | dump1090 command name or path |
-| `ADSB_HOST` | `127.0.0.1` | dump1090 host address |
-| `ADSB_PORT` | `30003` | dump1090 SBS-1 port |
-| `ADSB_CSV_PATH` | `adsb_history.csv` | Historical positions CSV file path |
-| `ADSB_CURRENT_CSV_PATH` | `adsb_current.csv` | Current positions snapshot CSV file path |
-| `ADSB_CURRENT_MAX_AGE_SECONDS` | `60` | Maximum age (seconds) for aircraft to appear in current CSV |
-
-### Example with custom settings:
-
-```bash
-export ADSB_HOST=192.168.1.100
-export ADSB_PORT=30003
-export ADSB_CSV_PATH=/data/adsb/history.csv
-export ADSB_CURRENT_CSV_PATH=/data/adsb/current.csv
-./adsb.sh csv
-```
-
-## Project Structure
-
-```
-adsb/
-├── SPEC.md              # Full project specification
-├── README.md            # This file
-├── requirements.txt     # Python dependencies
-├── adsb.sh              # One script to rule them all (starts dump1090 + Python)
-├── adsb_to_csv.py      # Step 1: CSV logger (MVP)
-├── plot_map.py          # Map visualization tool
-├── adsb_to_db.py       # Step 2: Database logger (TODO)
-└── api/                 # Step 3: HTTP API (TODO)
-    ├── main.py
-    ├── models.py
-    └── db.py
+mkdir -p data
+curl -o data/aircraft_db.csv https://raw.githubusercontent.com/wiedehopf/tar1090-db/csv/aircraft_db.csv
 ```
 
 ## Usage
 
-The `adsb.sh` script is the unified entry point for all operations:
+### Data Collection
 
 ```bash
-# 🚀 ONE COMMAND TO RULE THEM ALL: Start capture + live map updates
-./adsb.sh live
-
-# Or use individual modes:
-./adsb.sh csv          # CSV logger only (Step 1)
-./adsb.sh db           # Database logger (Step 2 - when implemented)
-./adsb.sh api          # HTTP API server (Step 3 - when implemented)
-
-# Show help
+# Start ADS-B capture (runs dump1090 + CSV logger)
 ./adsb.sh
+
+# Or with live map updates
+./adsb.sh live
 ```
 
-**The `live` mode:**
-- Starts dump1090 automatically
-- Captures ADS-B data to CSV files
-- Auto-updates the map every 10 seconds
-- Opens `adsb_map.html` in your browser and refresh to see updates!
-
-## Map Visualization
-
-### Static Map
-
-Plot aircraft positions on an interactive map:
+### Map Generation
 
 ```bash
-# Plot current positions
+# Generate map with current + historical trajectories
 python3 plot_map.py
 
-# Plot all historical positions (from adsb_history.csv)
+# Current positions only (no historical data)
+python3 plot_map.py --csv adsb_current.csv
+
+# Historical positions only
 python3 plot_map.py --historical
 
-# Plot trajectory for specific aircraft
+# Track specific aircraft by ICAO
 python3 plot_map.py --icao 3C5EF2
 
 # Custom output file
 python3 plot_map.py --output my_map.html
 ```
 
-### Real-Time Map Updates
+### Home Location Setup
 
-For real-time map updates while capturing data:
+```bash
+# Set home by address (geocodes automatically)
+python3 plot_map.py --home-address "Piazza del Duomo, Milan, Italy"
+
+# Or use environment variables
+export ADSB_HOME_LAT=51.5007
+export ADSB_HOME_LON=-0.1246
+export ADSB_HOME_ELEVATION_M=5
+```
+
+### Real-Time Map Updates
 
 **Terminal 1:** Start data capture
 ```bash
-./adsb.sh csv
+./adsb.sh
 ```
 
-**Terminal 2:** Auto-update map
+**Terminal 2:** Auto-update maps
 ```bash
-# Watch current positions and update map every 10 seconds
-python3 watch_map.py
+# Update current map every second
+while true; do python3 plot_map.py --csv adsb_current.csv --output adsb_current_map.html; sleep 1; done
 
-# Or watch historical positions
-python3 watch_map.py --historical
-
-# Custom update interval (e.g., every 5 seconds)
-python3 watch_map.py --interval 5
+# Update main map every 2 seconds
+while true; do python3 plot_map.py --output adsb_map.html; sleep 2; done
 ```
 
-**Browser:** Open `adsb_map.html` and refresh periodically, or use a browser extension that auto-refreshes.
+**Browser:** Open the HTML files - they auto-update via JavaScript polling.
 
-**Requirements:** Install folium first:
-```bash
-pip install folium
+## Map Features
+
+### Aircraft Icons
+
+Different SVG icons based on aircraft type (from tar1090):
+- **Airliner** (plane.svg): Commercial jets, large aircraft
+- **Helicopter** (helicopter.svg): Rotorcraft
+- **Light Aircraft** (light.svg): Cessnas, small props
+- **Glider** (glider.svg): Sailplanes
+
+### Altitude Color Scale
+
+Aircraft are color-coded by altitude with smooth gradients:
+- **Orange**: 0 ft (ground level)
+- **Yellow**: 4,000 ft
+- **Green**: 8,000 ft
+- **Cyan**: 20,000 ft
+- **Blue**: 30,000 ft
+- **Purple**: 40,000 ft+
+
+### Distance Calculation
+
+The popup shows true 3D distance from your home position, calculated using:
+- Haversine formula for horizontal distance
+- Pythagorean theorem for altitude difference
+- Accounts for your home elevation vs aircraft altitude
+
+### Aircraft Information
+
+Click any aircraft to see:
+- ICAO hex code
+- Registration number (if in database)
+- Aircraft type and model
+- Flight number
+- Altitude, speed, heading
+- Squawk code
+- Time since last seen
+- 3D distance from home
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DUMP1090_CMD` | `dump1090` | dump1090 command path |
+| `ADSB_HOST` | `127.0.0.1` | dump1090 host |
+| `ADSB_PORT` | `30003` | dump1090 SBS-1 port |
+| `ADSB_CSV_PATH` | `adsb_history.csv` | Historical positions file |
+| `ADSB_CURRENT_CSV_PATH` | `adsb_current.csv` | Current positions file |
+| `ADSB_CURRENT_MAX_AGE_SECONDS` | `60` | Max age for "current" aircraft |
+| `ADSB_HOME_LAT` | - | Home latitude (optional) |
+| `ADSB_HOME_LON` | - | Home longitude (optional) |
+| `ADSB_HOME_ELEVATION_M` | - | Home elevation in meters (optional) |
+
+### Home Location File
+
+The `home_location.json` file (created by `--home-address`) stores:
+```json
+{
+  "address": "Your input address",
+  "display_name": "Geocoded full address",
+  "lat": 51.5007,
+  "lon": -0.1246,
+  "elevation_m": 5.0,
+  "elevation_ft": 16.4
+}
 ```
 
-The scripts generate an interactive HTML map that you can open in any web browser. Features:
-- Interactive markers for each aircraft
-- Trajectory lines showing flight paths
-- Popups with aircraft details (ICAO, flight, altitude, speed, heading)
-- Multiple map tile layers (OpenStreetMap, CartoDB)
-- Color-coded aircraft for easy identification
-- Auto-updates when using `watch_map.py`
+## Project Structure
 
-## Implementation Status
+```
+adsb/
+├── adsb.sh              # Main entry script (starts dump1090 + logger)
+├── adsb_to_csv.py       # ADS-B to CSV logger
+├── plot_map.py          # Map visualization with all features
+├── aircraft_db.py       # Aircraft database lookup
+├── serve_map.py         # HTTP server for maps
+├── watch_map.py         # Auto-update map watcher
+├── icons/               # Aircraft SVG icons
+│   ├── plane.svg        # Airliner icon
+│   ├── helicopter.svg   # Helicopter icon
+│   ├── light.svg        # Light aircraft icon
+│   └── glider.svg       # Glider icon
+├── data/                # Aircraft database (gitignored)
+│   └── aircraft_db.csv  # 500k+ aircraft records
+├── requirements.txt     # Python dependencies
+├── SPEC.md              # Detailed specification
+└── README.md            # This file
+```
 
-- ✅ **Step 1**: CSV logger (`adsb_to_csv.py`) - Complete
-- ✅ **Map Visualization**: Interactive map plotting (`plot_map.py`) - Complete
-- ⏳ **Step 2**: Database logger (`adsb_to_db.py`) - Planned
-- ⏳ **Step 3**: HTTP API (`api/`) - Planned
+## Output Files
+
+| File | Description |
+|------|-------------|
+| `adsb_history.csv` | All position records (append-only) |
+| `adsb_current.csv` | Latest position per aircraft (rolling snapshot) |
+| `adsb_map.html` | Main map with historical trajectories |
+| `adsb_current_map.html` | Current aircraft only |
+| `*_data.json` | Position data for JavaScript updates |
+| `home_location.json` | Your configured home location |
 
 ## Troubleshooting
 
+### No aircraft showing on map
+- Verify dump1090 is receiving signals (check its web interface)
+- Ensure you have ADS-B traffic in your area
+- Check that CSV files are being written: `tail -f adsb_history.csv`
+
+### Aircraft icons not showing
+- Ensure the `icons/` directory exists with SVG files
+- Check browser console for JavaScript errors
+
+### Home location not working
+- Run `python3 plot_map.py --home-address "Your Address"` to set it
+- Check that `home_location.json` was created
+- Verify internet connection for geocoding API
+
 ### dump1090 not found
+- Install dump1090 or set `DUMP1090_CMD` to full path
+- On macOS: `brew install dump1090`
 
-If you see "dump1090 not found in PATH":
-- Install dump1090 or ensure it's in your PATH
-- Or set `DUMP1090_CMD` to the full path: `export DUMP1090_CMD=/path/to/dump1090`
+## APIs Used
 
-### Port already in use
-
-If port 30003 is already in use, the script will detect it and assume dump1090 is already running. This is fine - the logger will connect to the existing instance.
-
-### No data in CSV
-
-- Verify dump1090 is receiving aircraft (check the interactive table in dump1090 output)
-- Ensure you're in an area with ADS-B traffic
-- Check that the CSV file is writable
-
-### Permission errors
-
-Make sure the script is executable:
-
-```bash
-chmod +x adsb.sh
-```
-
-And that the CSV file location is writable:
-
-```bash
-export ADSB_CSV_PATH=/path/with/write/permissions/adsb_positions.csv
-```
-
-## Portability
-
-The code uses only Python standard library for Step 1, ensuring it runs identically on:
-- macOS (tested)
-- Linux (generic)
-- Raspberry Pi OS
-
-The shell script uses standard POSIX commands (`lsof`, `kill`, etc.) that are available on all Unix-like systems.
-
-## Next Steps
-
-See `SPEC.md` for detailed specifications of:
-- Step 2: Database storage with PostgreSQL
-- Step 3: HTTP API for Unreal Engine integration
+- **OpenStreetMap Nominatim**: Address geocoding (free, no API key)
+- **Open-Elevation**: Elevation lookup (free, no API key)
+- **tar1090-db**: Aircraft database from wiedehopf
 
 ## License
 
-[Add your license here]
+MIT License - See LICENSE file for details.
