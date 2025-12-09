@@ -3,7 +3,7 @@ version: "3.9"
 services:
   adsb_sender:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile.sender
     environment:
       # Point to the central API ingest endpoint (override via env or .env file)

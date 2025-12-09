@@ -5,9 +5,9 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ./:/app
+      - ../:/app
     env_file:
-      - .env.sim
+      - ../.env.sim
     environment:
       ADSB_INGEST_URL: ${ADSB_INGEST_URL:-http://adsb_view_db:8000/api/ingest}
       ADSB_SIM_CENTER_LAT: ${ADSB_SIM_CENTER_LAT:-40.4168}
@@ -18,5 +18,5 @@ services:
     command: >
       bash -lc "
       pip install --no-cache-dir -r requirements.txt &&
-      python simulate_sender.py
+      python -m apps.simulate_sender
       "

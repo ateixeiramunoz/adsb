@@ -21,11 +21,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+# Ensure project root is on sys.path
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
+
 import psycopg2
 import psycopg2.extras
 
-from src.lib.adsb import AircraftStateTracker, ParsedMessage, parse_sbs_line
-from src.lib.config import (
+from adsb.adsb import AircraftStateTracker, ParsedMessage, parse_sbs_line
+from adsb.config import (
     CSV_COLUMNS,
     FLUSH_INTERVAL,
     RECONNECT_DELAY,
@@ -36,7 +42,7 @@ from src.lib.config import (
     get_dump1090_port,
     get_history_csv_path,
 )
-from src.lib.geo import get_home_location
+from adsb.geo import get_home_location
 
 
 DDL_STATEMENTS = [

@@ -10,14 +10,20 @@ Usage:
     from aircraft_db import get_aircraft_info, get_aircraft_icon
 
     # As a CLI tool
-    python3 aircraft_db.py 4B4437
+    python -m apps.aircraft_db 4B4437
 """
 
 import csv
 import sys
 from typing import Dict, Optional
 
-from src.lib.config import AIRCRAFT_DB_FILE
+# Ensure project root is on sys.path
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
+
+from adsb.config import AIRCRAFT_DB_FILE
 
 # Default icon for unknown aircraft
 ICON_UNKNOWN = "unknown"
@@ -626,5 +632,5 @@ if __name__ == "__main__":
         else:
             print("Not found in database")
     else:
-        print("Usage: python3 aircraft_db.py <ICAO_HEX>")
-        print("Example: python3 aircraft_db.py 4B4437")
+        print("Usage: python -m apps.aircraft_db <ICAO_HEX>")
+        print("Example: python -m apps.aircraft_db 4B4437")

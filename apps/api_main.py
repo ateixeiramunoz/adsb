@@ -19,6 +19,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
 import psycopg2
 import requests
 from fastapi import FastAPI, HTTPException
@@ -28,10 +32,10 @@ from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel, Field, validator
 
-from src.lib.config import AIRCRAFT_DB_FILE
+from adsb.config import AIRCRAFT_DB_FILE, PROJECT_ROOT
 
 try:
-    from aircraft_db import get_icon_for_type, get_aircraft_info
+    from apps.aircraft_db import get_icon_for_type, get_aircraft_info
 except Exception:  # pragma: no cover
     get_icon_for_type = None
     get_aircraft_info = None
@@ -54,10 +58,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-STATIC_DIR = Path(__file__).parent / "api_static"
-ASSETS_DIR = Path(__file__).parent / "assets"
-if not ASSETS_DIR.exists():
-    ASSETS_DIR = Path(__file__).parent / ".." / "assets"
+STATIC_DIR = PROJECT_ROOT / "api_static"
+ASSETS_DIR = PROJECT_ROOT / "assets"
 
 AIRCRAFT_DB_URL = "https://raw.githubusercontent.com/wiedehopf/tar1090-db/csv/aircraft_db.csv"
 

@@ -12,9 +12,13 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
 import requests
 
-from adsb_to_db import generate_demo_positions
+from apps.adsb_to_db import generate_demo_positions
 
 
 def build_payload(center_lat: float, center_lon: float, aircraft: int, points_per_ac: int) -> List[Dict[str, Any]]:

@@ -12,10 +12,14 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
 import requests
 
-from src.lib.adsb import AircraftStateTracker, ParsedMessage, parse_sbs_line
-from src.lib.config import FLUSH_INTERVAL, RECONNECT_DELAY, get_dump1090_host, get_dump1090_port
+from adsb.adsb import AircraftStateTracker, ParsedMessage, parse_sbs_line
+from adsb.config import FLUSH_INTERVAL, RECONNECT_DELAY, get_dump1090_host, get_dump1090_port
 
 
 def connect_to_dump1090(host: str, port: int) -> socket.socket:

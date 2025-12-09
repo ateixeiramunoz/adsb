@@ -13,7 +13,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
 
-from src.lib.config import (
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
+
+from adsb.config import (
     DEFAULT_CURRENT_MAP_HTML,
     DEFAULT_MAP_HTML,
     OUTPUT_DIR,

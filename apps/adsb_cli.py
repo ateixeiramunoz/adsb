@@ -12,6 +12,12 @@ import os
 import sys
 from typing import Optional
 
+# Ensure project root is on sys.path
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
+
 
 def _set_if(value: Optional[str], env_var: str) -> None:
     if value is not None:
@@ -27,7 +33,7 @@ def cmd_csv(args: argparse.Namespace) -> None:
     _set_if(args.max_age, "ADSB_CURRENT_MAX_AGE_SECONDS")
 
     # Lazy import so env vars are set first
-    import adsb_to_csv
+    from apps import adsb_to_csv
 
     adsb_to_csv.main()
 
@@ -46,7 +52,7 @@ def cmd_plot(args: argparse.Namespace) -> None:
     if args.home_address:
         plot_args += ["--home-address", args.home_address]
 
-    import plot_map  # noqa: WPS433
+    from apps import plot_map  # noqa: WPS433
 
     # Patch sys.argv to reuse plot_map's argparse setup
     sys.argv = ["plot_map.py"] + plot_args
@@ -65,15 +71,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
     if args.interval:
         watch_args += ["--interval", str(args.interval)]
 
-    import watch_map  # noqa: WPS433
+    from apps import watch_map  # noqa: WPS433
 
     sys.argv = ["watch_map.py"] + watch_args
     watch_map.main()
-
-
-def cmd_db(_args: argparse.Namespace) -> None:
-    print("DB collector not implemented yet. Coming soon.", file=sys.stderr)
-    sys.exit(1)
 
 
 def cmd_api(_args: argparse.Namespace) -> None:
@@ -95,7 +96,7 @@ def cmd_db(args: argparse.Namespace) -> None:
     if args.simulate is not None:
         db_args += ["--simulate", str(args.simulate)]
 
-    import adsb_to_db  # noqa: WPS433
+    from apps import adsb_to_db  # noqa: WPS433
 
     sys.argv = ["adsb_to_db.py"] + db_args
     adsb_to_db.main()
@@ -130,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     watch_p.add_argument("--interval", type=int, default=1, help="Refresh interval seconds")
     watch_p.set_defaults(func=cmd_watch)
 
-    db_p = sub.add_parser("db", help="(Placeholder) DB collector")
+    db_p = sub.add_parser("db", help="DB collector (stream, CSV, or simulated)")
     db_p.add_argument("--db-url", help="PostgreSQL URL (fallback env ADSB_DB_URL)")
     db_p.add_argument("--batch-size", type=int, default=200, help="Batch insert size")
     db_mode = db_p.add_mutually_exclusive_group(required=True)

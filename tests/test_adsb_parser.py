@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.lib.adsb import AircraftStateTracker, ParsedMessage, parse_sbs_line  # noqa: E402
+from adsb.adsb import AircraftStateTracker, ParsedMessage, parse_sbs_line  # noqa: E402
 
 
 def test_parse_sbs_line_with_position():
