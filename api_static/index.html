@@ -21,6 +21,9 @@
     .legend span { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:4px; }
     .popup { font-size: 13px; }
     .popup .label { color: var(--muted); }
+    .popup .links { margin-top: 10px; display: flex; gap: 12px; justify-content: center; }
+    .popup .links a { color: #6cb8ff; text-decoration: none; font-weight: 600; }
+    .popup .links a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -184,6 +187,13 @@
           const color = altColor(ac.altitude_ft);
           const iconName = ac.icon || "plane";
           const icon = await svgIcon(iconName, color, ac.heading_deg);
+          const adsbxLink = `https://globe.adsbexchange.com/?icao=${(ac.icao || "").toLowerCase()}`;
+          const fr24Link = ac.registration ? `https://www.flightradar24.com/data/aircraft/${ac.registration.toLowerCase()}` : null;
+          const linksHtml = `
+              <div class="links">
+                <a href="${adsbxLink}" target="_blank" rel="noreferrer noopener">ADSBexchange</a>
+                ${fr24Link ? `<a href="${fr24Link}" target="_blank" rel="noreferrer noopener">FlightRadar24</a>` : ""}
+              </div>`;
           const popup = `
             <div class="popup">
               <div><strong>${ac.icao}</strong> ${ac.flight || ""}</div>
@@ -195,6 +205,7 @@
               <div class="label">Heading</div>${fmt(ac.heading_deg,"deg")}
               <div class="label">Squawk</div>${ac.squawk || ""}
               <div class="label">Timestamp</div>${ac.ts || ""}
+              ${linksHtml}
             </div>`;
           if (markers[key]) {
             markers[key].setLatLng(latlng).setIcon(icon).setPopupContent(popup);
