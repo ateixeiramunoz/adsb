@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -32,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel, Field, validator
 
-from adsb.config import AIRCRAFT_DB_FILE, PROJECT_ROOT
+from adsb.config import AIRCRAFT_DB_FILE, OUTPUT_DIR, PROJECT_ROOT
 
 try:
     from apps.aircraft_db import get_icon_for_type, get_aircraft_info
@@ -50,6 +51,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("adsb_api")
 
 app = FastAPI(title="ADS-B API", version="0.1.0")
+
+
+@app.on_event("startup")
+def _on_startup() -> None:
+    _generate_portal()
 
 app.add_middleware(
     CORSMiddleware,
@@ -170,6 +176,33 @@ ensure_aircraft_db()
 # Ensure DB schema exists for fresh databases, and trim old rows to avoid huge history
 ensure_schema_exists()
 prune_old_positions()
+
+_INGEST_EVENTS: deque[datetime] = deque()
+
+
+def _record_ingest_event(ts: datetime | None = None) -> None:
+    """Track ingest hits for the last hour (best-effort, in-memory)."""
+    now = ts or datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=1)
+    _INGEST_EVENTS.append(now)
+    # Trim old events
+    while _INGEST_EVENTS and _INGEST_EVENTS[0] < cutoff:
+        _INGEST_EVENTS.popleft()
+
+
+def _generate_portal() -> None:
+    """
+    (Best-effort) regenerate the HTML portal with DB stats and CSV previews.
+
+    Keeps UX consistent when running under docker-compose: root (/) will serve
+    output/index.html if present.
+    """
+    try:
+        from apps import portal  # noqa: WPS433
+
+        portal.main()
+    except Exception as exc:  # pragma: no cover - non-critical
+        logger.warning("Portal generation failed: %s", exc)
 
 
 class PositionIn(BaseModel):
@@ -336,10 +369,88 @@ def tracks(
     return list(tracks_by_icao.values())
 
 
+@app.get("/api/stats/overview")
+def stats_overview() -> dict:
+    """Summary stats for portal/UI (counts and recency)."""
+    rows = fetch_all(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM aircraft) AS aircraft_count,
+            (SELECT COUNT(*) FROM positions) AS position_count,
+            (SELECT MAX(ts) FROM positions) AS latest_ts,
+            (SELECT COUNT(*) FROM positions WHERE ts >= NOW() - interval '1 hour') AS last_hour,
+            (SELECT COUNT(*) FROM positions WHERE ts >= NOW() - interval '24 hours') AS last_day
+        """,
+        (),
+    )
+    row = rows[0] if rows else {}
+    latest = row.get("latest_ts")
+    return {
+        "aircraft_count": row.get("aircraft_count", 0),
+        "position_count": row.get("position_count", 0),
+        "latest_ts": latest.isoformat() if isinstance(latest, datetime) else latest,
+        "last_hour": row.get("last_hour", 0),
+        "last_day": row.get("last_day", 0),
+        "status": "ok",
+        "ingests_last_hour": len(_INGEST_EVENTS),
+    }
+
+
+@app.get("/api/aircraft/recent")
+def recent_aircraft(limit: int = 15) -> List[dict]:
+    """Most recently seen aircraft with last point and counters."""
+    if limit <= 0:
+        raise HTTPException(status_code=400, detail="limit must be > 0")
+    rows = fetch_all(
+        """
+        SELECT
+            a.icao,
+            a.last_flight AS flight,
+            a.first_seen_utc,
+            a.last_seen_utc,
+            counts.position_count,
+            last_pos.ts AS last_ts,
+            last_pos.lat,
+            last_pos.lon,
+            last_pos.altitude_ft
+        FROM aircraft a
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS position_count FROM positions p WHERE p.icao = a.icao
+        ) counts ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT ts, lat, lon, altitude_ft
+            FROM positions p
+            WHERE p.icao = a.icao
+            ORDER BY ts DESC
+            LIMIT 1
+        ) last_pos ON TRUE
+        ORDER BY a.last_seen_utc DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+
+    def to_json(row: dict) -> dict:
+        return {
+            "icao": row["icao"],
+            "flight": row.get("flight"),
+            "first_seen_utc": row.get("first_seen_utc").isoformat() if isinstance(row.get("first_seen_utc"), datetime) else row.get("first_seen_utc"),
+            "last_seen_utc": row.get("last_seen_utc").isoformat() if isinstance(row.get("last_seen_utc"), datetime) else row.get("last_seen_utc"),
+            "position_count": row.get("position_count", 0),
+            "last_ts": row.get("last_ts").isoformat() if isinstance(row.get("last_ts"), datetime) else row.get("last_ts"),
+            "last_lat": row.get("lat"),
+            "last_lon": row.get("lon"),
+            "last_altitude_ft": row.get("altitude_ft"),
+        }
+
+    return [to_json(r) for r in rows]
+
+
 @app.post("/api/ingest")
 def ingest(payload: IngestPayload):
     """Ingest positions (typically from remote senders) into Postgres."""
     if not payload.positions:
+        _record_ingest_event()
         return {"ingested": 0}
 
     aircraft_rows = []
@@ -371,6 +482,7 @@ def ingest(payload: IngestPayload):
         )
 
     if not position_rows:
+        _record_ingest_event()
         return {"ingested": 0}
 
     try:
@@ -398,6 +510,7 @@ def ingest(payload: IngestPayload):
         logger.error("Ingest failed: %s", exc)
         raise HTTPException(status_code=500, detail="Ingest failed")
 
+    _record_ingest_event()
     return {"ingested": len(position_rows)}
 
 
@@ -408,6 +521,9 @@ def map_page():
 
 @app.get("/")
 def root():
+    generated_portal = OUTPUT_DIR / "index.html"
+    if generated_portal.exists():
+        return FileResponse(generated_portal)
     home = STATIC_DIR / "home.html"
     if home.exists():
         return FileResponse(home)
