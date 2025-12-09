@@ -22,6 +22,12 @@ A portable Python toolchain for collecting, visualizing, and tracking ADS-B airc
 ./adsb.sh
 ```
 
+Or cross-platform without the bash wrapper:
+
+```bash
+python adsb_cli.py csv
+```
+
 This single command:
 1. Starts dump1090 (if not running)
 2. Begins collecting ADS-B data to CSV
@@ -94,6 +100,21 @@ python3 plot_map.py --icao 3C5EF2
 
 # Custom output file
 python3 plot_map.py --output my_map.html
+```
+
+### Python CLI (multiplatform, beta)
+
+Use the Python entry point instead of the bash script:
+
+```bash
+# CSV logger (honors ADSB_* env vars)
+python adsb_cli.py csv --host 127.0.0.1 --port 30003
+
+# Generate a map once
+python adsb_cli.py plot --csv output/adsb_current.csv --output output/adsb_current_map.html
+
+# Watch CSV and refresh map
+python adsb_cli.py watch --csv output/adsb_current.csv --output output/adsb_current_map.html --interval 2
 ```
 
 ### Home Location Setup
@@ -277,6 +298,12 @@ The `config/home_location.json` file (created by `--home-address`) stores:
 ### Port 8000 already in use
 - Set a different port: `ADSB_HTTP_PORT=8080 ./adsb.sh`
 - Or kill the existing process: `lsof -ti:8000 | xargs kill`
+
+## Testing
+
+```bash
+pytest
+```
 
 ## APIs Used
 
