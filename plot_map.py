@@ -14,11 +14,39 @@ Usage:
 import argparse
 import csv
 import json
+import math
 import os
 import sys
 import time
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
+
+
+def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the bearing (heading) from point 1 to point 2.
+    Returns bearing in degrees (0-360, where 0 is North).
+    """
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    lon_diff = math.radians(lon2 - lon1)
+
+    x = math.sin(lon_diff) * math.cos(lat2_rad)
+    y = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(lon_diff)
+
+    bearing = math.atan2(x, y)
+    bearing_deg = math.degrees(bearing)
+
+    # Normalize to 0-360
+    return (bearing_deg + 360) % 360
+
+# Import aircraft database for type lookup
+try:
+    from aircraft_db import get_aircraft_info, get_icon_for_type, AircraftDatabase
+    AIRCRAFT_DB_AVAILABLE = True
+except ImportError:
+    AIRCRAFT_DB_AVAILABLE = False
+    print("Warning: aircraft_db module not available, using default icons", file=sys.stderr)
 
 
 def read_csv_positions(csv_path: str) -> List[Dict[str, Any]]:
@@ -285,6 +313,101 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     # Add layer control
     folium.LayerControl().add_to(m)
     
+    # Load aircraft database for type lookup
+    aircraft_types = {}
+    if AIRCRAFT_DB_AVAILABLE:
+        db = AircraftDatabase()
+        if db.load():
+            unique_icaos = set(p["icao"] for p in positions)
+            for icao in unique_icaos:
+                info = db.lookup(icao)
+                if info and info.get("type"):
+                    aircraft_types[icao] = {
+                        "type": info.get("type", ""),
+                        "registration": info.get("registration", ""),
+                        "model": info.get("model", ""),
+                        "manufacturer": info.get("manufacturer", ""),
+                        "icon": get_icon_for_type(info.get("type", ""))
+                    }
+
+    # Calculate headings from trajectory for positions that don't have heading data
+    # Group positions by ICAO and sort by timestamp to calculate bearing between consecutive points
+    icao_positions = {}
+    for p in positions:
+        icao = p["icao"]
+        if icao not in icao_positions:
+            icao_positions[icao] = []
+        icao_positions[icao].append(p)
+
+    # For aircraft with only one position, try to load recent historical positions for heading calculation
+    history_path = os.getenv("ADSB_CSV_PATH", "adsb_history.csv")
+    if os.path.exists(history_path):
+        # Load last few positions from history for each ICAO that needs heading calculation
+        icaos_needing_history = {icao for icao, pos_list in icao_positions.items()
+                                  if len(pos_list) == 1 and pos_list[0].get("heading_deg") is None}
+        if icaos_needing_history:
+            # Read history file in reverse to get recent positions
+            try:
+                with open(history_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                # Parse from end, collect up to 5 recent positions per ICAO
+                history_positions = {icao: [] for icao in icaos_needing_history}
+                reader = csv.DictReader(lines)
+                all_rows = list(reader)
+                for row in reversed(all_rows):
+                    icao = row.get("icao", "").strip()
+                    if icao in icaos_needing_history and len(history_positions[icao]) < 5:
+                        try:
+                            lat = float(row["lat"])
+                            lon = float(row["lon"])
+                            history_positions[icao].append({
+                                "lat": lat,
+                                "lon": lon,
+                                "timestamp_utc": row.get("timestamp_utc", "")
+                            })
+                        except (ValueError, KeyError):
+                            pass
+                    # Stop if we have enough for all ICAOs
+                    if all(len(v) >= 2 for v in history_positions.values()):
+                        break
+                # Add historical positions to icao_positions for heading calculation
+                for icao, hist_list in history_positions.items():
+                    if hist_list:
+                        # Reverse to get chronological order
+                        hist_list.reverse()
+                        # Prepend historical positions (they're older than current)
+                        icao_positions[icao] = hist_list + icao_positions[icao]
+            except Exception as e:
+                print(f"Warning: Could not load history for heading calculation: {e}", file=sys.stderr)
+
+    # Sort each ICAO's positions by timestamp and calculate headings
+    for icao, pos_list in icao_positions.items():
+        # Sort by timestamp
+        pos_list.sort(key=lambda x: x.get("timestamp_utc", ""))
+
+        # Calculate heading from consecutive positions
+        for i in range(len(pos_list)):
+            if pos_list[i].get("heading_deg") is None:
+                # Try to calculate from previous position (where we came from)
+                if i > 0:
+                    prev_pos = pos_list[i - 1]
+                    # Only calculate if positions are different
+                    if prev_pos["lat"] != pos_list[i]["lat"] or prev_pos["lon"] != pos_list[i]["lon"]:
+                        heading = calculate_bearing(
+                            prev_pos["lat"], prev_pos["lon"],
+                            pos_list[i]["lat"], pos_list[i]["lon"]
+                        )
+                        pos_list[i]["heading_deg"] = round(heading, 1)
+                # Try to calculate from next position if no previous
+                elif i < len(pos_list) - 1:
+                    next_pos = pos_list[i + 1]
+                    if next_pos["lat"] != pos_list[i]["lat"] or next_pos["lon"] != pos_list[i]["lon"]:
+                        heading = calculate_bearing(
+                            pos_list[i]["lat"], pos_list[i]["lon"],
+                            next_pos["lat"], next_pos["lon"]
+                        )
+                        pos_list[i]["heading_deg"] = round(heading, 1)
+
     # Prepare positions data for JavaScript (will be embedded in HTML)
     positions_data = [
         {
@@ -301,6 +424,24 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
         for p in positions
     ]
     positions_json = json.dumps(positions_data)
+
+    # Aircraft types JSON for icon lookup
+    aircraft_types_json = json.dumps(aircraft_types)
+
+    # Load SVG icons from files
+    icons_dir = os.path.join(os.path.dirname(__file__), "icons")
+    svg_icons = {}
+    for icon_name in ["plane", "helicopter", "light", "glider"]:
+        svg_path = os.path.join(icons_dir, f"{icon_name}.svg")
+        if os.path.exists(svg_path):
+            with open(svg_path, "r") as f:
+                # Read SVG and add size attributes, escape for JSON
+                svg_content = f.read().strip()
+                # Add width/height to the svg tag if not present
+                if 'width=' not in svg_content:
+                    svg_content = svg_content.replace('<svg ', '<svg width="28" height="28" ')
+                svg_icons[icon_name] = svg_content
+    svg_icons_json = json.dumps(svg_icons)
     
     # Prepare current ICAOs list for JavaScript (aircraft that should show markers)
     current_icaos_list = list(current_icaos) if current_icaos else []
@@ -312,6 +453,20 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     with open(json_path, "w", encoding="utf-8") as f:
         f.write(positions_json)
     
+    # Add CSS for aircraft icons
+    icon_css = '''
+    <style>
+    .aircraft-icon {
+        background: transparent !important;
+        border: none !important;
+    }
+    .aircraft-icon svg {
+        filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.5));
+    }
+    </style>
+    '''
+    m.get_root().html.add_child(folium.Element(icon_css))
+
     # Add title
     title_html = f'''
     <h3 id="map-title" style="position:fixed;
@@ -332,10 +487,16 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     <script>
     // Embedded positions data (updated when HTML is regenerated or via HTTP fetch)
     let embeddedPositionsData = {positions_json};
-    
+
     // Current ICAOs (aircraft that should show markers, not just lines)
     let currentICAOs = new Set({current_icaos_json});
-    
+
+    // Aircraft type information from database (for icon selection)
+    let aircraftTypes = {aircraft_types_json};
+
+    // SVG icons loaded from files (pointing UP by default, rotated by heading)
+    const SVG_ICONS = {svg_icons_json};
+
     let markerLayer = null;
     let lineLayer = null;
     let currentMarkers = {{}};
@@ -497,36 +658,65 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     }})();
     
     function getAltitudeColor(altitude_ft) {{
-        if (altitude_ft === null || altitude_ft === undefined) return 'gray';
-        
-        // Mapped to valid folium/AwesomeMarkers colors
+        // Returns HEX color for SVG fill based on altitude
+        if (altitude_ft === null || altitude_ft === undefined) return '#808080';  // gray
+
         const colorStops = [
-            [0, 'orange'],        // 0ft - orange
-            [4000, 'lightred'],    // 4000ft - yellow-ish (using lightred)
-            [8000, 'green'],      // 8000ft - green
-            [20000, 'lightblue'], // 20000ft - cyan-ish (using lightblue)
-            [30000, 'blue'],      // 30000ft - blue
-            [40000, 'purple']     // 40000ft - magenta-ish (using purple)
+            [0, '#FF8C00'],      // 0ft - orange
+            [4000, '#FFD700'],   // 4000ft - gold/yellow
+            [8000, '#32CD32'],   // 8000ft - lime green
+            [20000, '#00CED1'], // 20000ft - dark turquoise
+            [30000, '#1E90FF'],  // 30000ft - dodger blue
+            [40000, '#9932CC']   // 40000ft - dark orchid/purple
         ];
-        
+
         if (altitude_ft <= colorStops[0][0]) return colorStops[0][1];
         if (altitude_ft >= colorStops[colorStops.length - 1][0]) return colorStops[colorStops.length - 1][1];
-        
+
         for (let i = 0; i < colorStops.length - 1; i++) {{
             if (altitude_ft >= colorStops[i][0] && altitude_ft <= colorStops[i + 1][0]) {{
                 const ratio = (altitude_ft - colorStops[i][0]) / (colorStops[i + 1][0] - colorStops[i][0]);
                 return ratio < 0.5 ? colorStops[i][1] : colorStops[i + 1][1];
             }}
         }}
-        return 'gray';
+        return '#808080';
     }}
 
-    function getAircraftIcon(altitude_ft) {{
-        // Use helicopter icon for low-altitude aircraft (below 3000 ft)
-        if (altitude_ft !== null && altitude_ft !== undefined && altitude_ft < 3000) {{
-            return 'helicopter';
+    function getAircraftIconType(icao) {{
+        // Get icon type from aircraft database, default to 'plane'
+        if (aircraftTypes[icao] && aircraftTypes[icao].icon) {{
+            return aircraftTypes[icao].icon;
         }}
         return 'plane';
+    }}
+
+    function getAircraftInfo(icao) {{
+        // Get full aircraft info for popup
+        return aircraftTypes[icao] || null;
+    }}
+
+    function createSvgIcon(icao, altitude_ft, heading_deg) {{
+        // Create a rotatable SVG icon for the aircraft
+        const iconType = getAircraftIconType(icao);
+        const color = getAltitudeColor(altitude_ft);
+        const rotation = heading_deg !== null && heading_deg !== undefined ? heading_deg : 0;
+
+        // Get the SVG template and replace color placeholder
+        let svgTemplate = SVG_ICONS[iconType] || SVG_ICONS['plane'];
+        let svg = svgTemplate.replace(/\{{COLOR\}}/g, color);
+
+        // Create a div with the rotated SVG
+        const html = `<div style="transform: rotate(${{rotation}}deg); transform-origin: center center;">
+            ${{svg}}
+        </div>`;
+
+        return L.divIcon({{
+            html: html,
+            className: 'aircraft-icon',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],  // Center of the icon
+            popupAnchor: [0, -14]
+        }});
     }}
 
     function startAutoUpdate() {{
@@ -667,56 +857,43 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
             if (isCurrent) {{
                 // This aircraft is in adsb_current.csv, so it should have a marker
                 console.log('*** PROCESSING CURRENT AIRCRAFT:', icao, 'at', latest.lat, latest.lon, 'altitude:', latest.altitude_ft);
-                
+
+                // Build popup text with aircraft info from database
+                const acInfo = getAircraftInfo(icao);
+                let popupText = `<b>ICAO:</b> ${{latest.icao}}<br>`;
+                if (acInfo && acInfo.registration) popupText += `<b>Reg:</b> ${{acInfo.registration}}<br>`;
+                if (acInfo && acInfo.type) popupText += `<b>Type:</b> ${{acInfo.type}}<br>`;
+                if (acInfo && acInfo.model) popupText += `<b>Model:</b> ${{acInfo.model}}<br>`;
+                if (latest.flight) popupText += `<b>Flight:</b> ${{latest.flight}}<br>`;
+                if (latest.altitude_ft) popupText += `<b>Altitude:</b> ${{latest.altitude_ft.toLocaleString()}} ft<br>`;
+                if (latest.speed_kts) popupText += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts<br>`;
+                if (latest.heading_deg !== null && latest.heading_deg !== undefined) popupText += `<b>Heading:</b> ${{Math.round(latest.heading_deg)}}°<br>`;
+                if (latest.squawk) popupText += `<b>Squawk:</b> ${{latest.squawk}}<br>`;
+                if (latest.timestamp_utc) popupText += `<b>Time:</b> ${{latest.timestamp_utc}}`;
+
                 // Update existing marker or create new one
                 if (currentMarkers[icao]) {{
                     console.log('Updating existing marker for:', icao);
                     // Update existing marker position and popup
                     currentMarkers[icao].setLatLng([latest.lat, latest.lon]);
-                    
-                    // Update popup
-                    let popupText = `<b>ICAO:</b> ${{latest.icao}}<br>`;
-                    if (latest.flight) popupText += `<b>Flight:</b> ${{latest.flight}}<br>`;
-                    if (latest.altitude_ft) popupText += `<b>Altitude:</b> ${{latest.altitude_ft.toLocaleString()}} ft<br>`;
-                    if (latest.speed_kts) popupText += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts<br>`;
-                    if (latest.heading_deg) popupText += `<b>Heading:</b> ${{Math.round(latest.heading_deg)}}°<br>`;
-                    if (latest.squawk) popupText += `<b>Squawk:</b> ${{latest.squawk}}<br>`;
-                    if (latest.timestamp_utc) popupText += `<b>Time:</b> ${{latest.timestamp_utc}}`;
                     currentMarkers[icao].setPopupContent(popupText);
-                    
-                    // Update icon based on altitude (helicopter for low altitude)
-                    const aircraftIcon = getAircraftIcon(latest.altitude_ft);
-                    const newIcon = L.AwesomeMarkers.icon({{
-                        icon: aircraftIcon,
-                        prefix: 'fa',
-                        markerColor: color
-                    }});
+
+                    // Update SVG icon with new heading/altitude
+                    const newIcon = createSvgIcon(icao, latest.altitude_ft, latest.heading_deg);
                     currentMarkers[icao].setIcon(newIcon);
                     console.log('Marker updated for:', icao);
                 }} else {{
                     // Create new marker for aircraft in adsb_current.csv
                     console.log('*** CREATING NEW MARKER for ICAO:', icao, 'at', latest.lat, latest.lon);
-                    let popupText = `<b>ICAO:</b> ${{latest.icao}}<br>`;
-                    if (latest.flight) popupText += `<b>Flight:</b> ${{latest.flight}}<br>`;
-                    if (latest.altitude_ft) popupText += `<b>Altitude:</b> ${{latest.altitude_ft.toLocaleString()}} ft<br>`;
-                    if (latest.speed_kts) popupText += `<b>Speed:</b> ${{Math.round(latest.speed_kts)}} kts<br>`;
-                    if (latest.heading_deg) popupText += `<b>Heading:</b> ${{Math.round(latest.heading_deg)}}°<br>`;
-                    if (latest.squawk) popupText += `<b>Squawk:</b> ${{latest.squawk}}<br>`;
-                    if (latest.timestamp_utc) popupText += `<b>Time:</b> ${{latest.timestamp_utc}}`;
-                    
+
                     try {{
-                        const aircraftIcon = getAircraftIcon(latest.altitude_ft);
+                        const svgIcon = createSvgIcon(icao, latest.altitude_ft, latest.heading_deg);
                         const marker = L.marker([latest.lat, latest.lon], {{
-                            icon: L.AwesomeMarkers.icon({{
-                                icon: aircraftIcon,
-                                prefix: 'fa',
-                                markerColor: color
-                            }})
+                            icon: svgIcon
                         }}).bindPopup(popupText);
                         markerLayer.addLayer(marker);
                         currentMarkers[icao] = marker;
-                        console.log('*** AIRCRAFT MARKER SUCCESSFULLY CREATED for ICAO:', icao, 'at', latest.lat, latest.lon, 'color:', color);
-                        console.log('Marker added to markerLayer, total markers now:', Object.keys(currentMarkers).length);
+                        console.log('*** AIRCRAFT MARKER SUCCESSFULLY CREATED for ICAO:', icao, 'type:', getAircraftIconType(icao));
                     }} catch(e) {{
                         console.error('ERROR creating marker for', icao, ':', e);
                     }}
@@ -834,7 +1011,11 @@ Examples:
     # Determine CSV file
     if args.csv:
         csv_path = args.csv
-        historical_csv_path = None
+        # Still load historical data for trajectories unless --no-history is set
+        if not args.no_history:
+            historical_csv_path = os.getenv("ADSB_CSV_PATH", "adsb_history.csv")
+        else:
+            historical_csv_path = None
     elif args.historical:
         csv_path = os.getenv("ADSB_CSV_PATH", "adsb_history.csv")
         historical_csv_path = None
@@ -867,23 +1048,19 @@ Examples:
                     historical_by_icao[icao] = []
                 historical_by_icao[icao].append(hist_pos)
             
-            # Add ALL historical positions (for both current and past aircraft)
-            # This shows trajectories for all aircraft that have historical data
+            # Add historical positions ONLY for currently visible aircraft
+            # This shows trajectories only for aircraft that are currently being detected
             for hist_pos in historical_positions:
-                # For currently visible aircraft, avoid duplicates with current positions
+                # Only add historical positions for aircraft in current_icaos
                 if hist_pos["icao"] in current_icaos:
                     is_duplicate = any(
-                        p["icao"] == hist_pos["icao"] and 
+                        p["icao"] == hist_pos["icao"] and
                         abs(p["lat"] - hist_pos["lat"]) < 0.0001 and
                         abs(p["lon"] - hist_pos["lon"]) < 0.0001
                         for p in positions
                     )
                     if not is_duplicate:
                         positions.append(hist_pos)
-                else:
-                    # For aircraft not currently visible, add all their historical positions
-                    # This will show their trajectory lines even if they're not currently visible
-                    positions.append(hist_pos)
             
             print(f"Loaded {len(historical_positions)} historical positions for {len(historical_by_icao)} aircraft")
     

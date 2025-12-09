@@ -10,5 +10,8 @@ adsb_map_data.json
 adsb_current_map.html
 adsb_current_map_data.json
 
+# Aircraft database (90MB, downloaded separately)
+data/
+
 # Claude Code
 .claude/
