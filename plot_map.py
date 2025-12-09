@@ -308,6 +308,7 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     
     # Also save to JSON file for HTTP fetching
     json_path = os.path.splitext(output_path)[0] + "_data.json"
+    json_filename = os.path.basename(json_path)  # Just the filename for JavaScript fetch
     with open(json_path, "w", encoding="utf-8") as f:
         f.write(positions_json)
     
@@ -484,12 +485,14 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
             }}
         }}
         
-        // Try immediately, then retry if needed
-        findMap();
-        
-        // Also try after DOM is ready
-        if (document.readyState === 'loading') {{
-            document.addEventListener('DOMContentLoaded', findMap);
+        // Wait for window.onload to ensure Folium's map script has executed
+        // This is more reliable than DOMContentLoaded since Folium adds its map script at end of body
+        if (document.readyState === 'complete') {{
+            // Page already loaded, find map immediately
+            findMap();
+        }} else {{
+            // Wait for full page load including all scripts
+            window.addEventListener('load', findMap);
         }}
     }})();
     
@@ -517,7 +520,15 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
         }}
         return 'gray';
     }}
-    
+
+    function getAircraftIcon(altitude_ft) {{
+        // Use helicopter icon for low-altitude aircraft (below 3000 ft)
+        if (altitude_ft !== null && altitude_ft !== undefined && altitude_ft < 3000) {{
+            return 'helicopter';
+        }}
+        return 'plane';
+    }}
+
     function startAutoUpdate() {{
         // Check if we're being served via HTTP (not file://)
         const isHttp = window.location.protocol === 'http:' || window.location.protocol === 'https:';
@@ -537,7 +548,7 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
     
     function updateMapData() {{
         // Fetch JSON data file (works when served via HTTP)
-        fetch('adsb_map_data.json?t=' + new Date().getTime())
+        fetch('{json_filename}?t=' + new Date().getTime())
             .then(response => response.json())
             .then(data => {{
                 embeddedPositionsData = data; // Update embedded data
@@ -673,9 +684,10 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
                     if (latest.timestamp_utc) popupText += `<b>Time:</b> ${{latest.timestamp_utc}}`;
                     currentMarkers[icao].setPopupContent(popupText);
                     
-                    // Update icon color if altitude changed
+                    // Update icon based on altitude (helicopter for low altitude)
+                    const aircraftIcon = getAircraftIcon(latest.altitude_ft);
                     const newIcon = L.AwesomeMarkers.icon({{
-                        icon: 'plane',
+                        icon: aircraftIcon,
                         prefix: 'fa',
                         markerColor: color
                     }});
@@ -693,9 +705,10 @@ def create_map(positions: List[Dict[str, Any]], output_path: str = "adsb_map.htm
                     if (latest.timestamp_utc) popupText += `<b>Time:</b> ${{latest.timestamp_utc}}`;
                     
                     try {{
+                        const aircraftIcon = getAircraftIcon(latest.altitude_ft);
                         const marker = L.marker([latest.lat, latest.lon], {{
                             icon: L.AwesomeMarkers.icon({{
-                                icon: 'plane',
+                                icon: aircraftIcon,
                                 prefix: 'fa',
                                 markerColor: color
                             }})

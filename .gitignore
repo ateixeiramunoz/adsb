@@ -7,6 +7,8 @@ adsb_history.csv
 adsb_current.csv
 adsb_map.html
 adsb_map_data.json
+adsb_current_map.html
+adsb_current_map_data.json
 
 # Claude Code
 .claude/
