@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+
+# Generated data files
+adsb_history.csv
+adsb_current.csv
+adsb_map.html
+adsb_map_data.json
+
+# Claude Code
+.claude/
