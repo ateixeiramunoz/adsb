@@ -2,7 +2,7 @@ services:
   adsb_sender:
     build:
       context: ..
-      dockerfile: Dockerfile.sender
+      dockerfile: deploy/Dockerfile.sender
     environment:
       ADSB_SOURCE_ID: ${ADSB_SOURCE_ID:-ANTENNA_NODE}
       ADSB_OUTPUT_MODE: ${ADSB_OUTPUT_MODE:-nats}
