@@ -14,9 +14,13 @@ import csv
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
 import psycopg2
 
-from src.lib.config import CSV_COLUMNS, OUTPUT_DIR
+from adsb.config import CSV_COLUMNS, OUTPUT_DIR
 
 
 def export_positions(db_url: str, hours: int, history_csv: Path, current_csv: Path) -> None:

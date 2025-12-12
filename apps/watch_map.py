@@ -5,20 +5,25 @@ Watch and auto-update map from ADS-B CSV files.
 Continuously regenerates the map HTML file as new positions are captured.
 
 Usage:
-    python3 watch_map.py              # Watch current positions
-    python3 watch_map.py --historical # Watch historical positions
-    python3 watch_map.py --interval 5 # Update every 5 seconds
+    python -m apps.watch_map              # Watch current positions
+    python -m apps.watch_map --historical # Watch historical positions
+    python -m apps.watch_map --interval 5 # Update every 5 seconds
 """
 
 import argparse
 import os
 import time
 
-from src.lib.config import (
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
+
+from adsb.config import (
     get_history_csv_path, get_current_csv_path,
     DEFAULT_MAP_HTML, DEFAULT_CURRENT_MAP_HTML,
 )
-from plot_map import read_csv_positions, create_map
+from apps.plot_map import read_csv_positions, create_map
 
 
 def watch_and_update(csv_path: str, output_path: str = None,
@@ -91,9 +96,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python3 watch_map.py               # Watch current positions (default)
-  python3 watch_map.py --historical  # Watch historical positions
-  python3 watch_map.py --interval 5  # Update every 5 seconds
+  python -m apps.watch_map               # Watch current positions (default)
+  python -m apps.watch_map --historical  # Watch historical positions
+  python -m apps.watch_map --interval 5  # Update every 5 seconds
         """
     )
 

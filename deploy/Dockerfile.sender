@@ -5,10 +5,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
-# Copy only the application source (omit output/ and data/)
-COPY adsb_cli.py adsb_to_db.py adsb_to_csv.py aircraft_db.py adsb_sender.py serve_map.py plot_map.py watch_map.py simulate_stream.py portal.py adsb.sh SPEC.md README.md ./
-COPY src ./src
+# Copy application source (omit output/ and data/)
+COPY adsb ./adsb
+COPY apps ./apps
 COPY assets ./assets
+COPY api_static ./api_static
+COPY adsb.sh README.md SPEC.md ./
 
 # Default values to read a local dump1090 feed
 ENV ADSB_HOST=127.0.0.1
@@ -17,4 +19,4 @@ ENV ADSB_PORT=30003
 # API ingest endpoint for forwarding positions (e.g., http://server:8000/api/ingest)
 ENV ADSB_INGEST_URL=http://localhost:8000/api/ingest
 
-ENTRYPOINT ["python", "adsb_sender.py"]
+ENTRYPOINT ["python", "-m", "apps.adsb_sender"]

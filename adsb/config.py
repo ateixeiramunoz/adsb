@@ -7,8 +7,8 @@ All file paths and constants should be defined here for consistency.
 import os
 from pathlib import Path
 
-# Project root directory (adsb/)
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# Project root directory
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Directory paths
 OUTPUT_DIR = PROJECT_ROOT / "output"

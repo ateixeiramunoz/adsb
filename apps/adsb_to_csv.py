@@ -8,7 +8,7 @@ to two CSV files:
 2. Current: latest position per aircraft seen in the last 60 seconds (snapshot)
 
 Usage:
-    python3 adsb_to_csv.py
+    python -m apps.adsb_to_csv
 
 Environment Variables:
     ADSB_HOST: dump1090 host (default: 127.0.0.1)
@@ -25,13 +25,19 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 
+# Ensure project root is on sys.path
+try:
+    from . import _bootstrap  # noqa: F401
+except ImportError:  # pragma: no cover
+    import _bootstrap  # type: ignore  # noqa: F401
+
 # Import shared configuration
-from src.lib.adsb import (
+from adsb.adsb import (
     AircraftStateTracker,
     ParsedMessage,
     parse_sbs_line,
 )
-from src.lib.config import (
+from adsb.config import (
     get_history_csv_path,
     get_current_csv_path,
     get_dump1090_host,
