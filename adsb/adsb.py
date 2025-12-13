@@ -323,48 +323,40 @@ def build_adsb_position_event(
 
     ts_ms = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
 
-    aircraft_block = _drop_none(
-        {
-            "icaoHex": state.icao,
-            "callsign": state.flight or None,
-            "registration": state.registration,
-            "icaoType": state.icao_type,
-            "model": state.model,
-            "isMilitary": state.is_military,
-            "isInteresting": state.is_interesting,
-            "isPIA": state.is_pia,
-            "isLADD": state.is_ladd,
-        }
-    )
+    aircraft_block = {
+        "icaoHex": state.icao,
+        "callsign": state.flight or None,
+        "registration": state.registration,
+        "icaoType": state.icao_type,
+        "model": state.model,
+        "isMilitary": state.is_military,
+        "isInteresting": state.is_interesting,
+        "isPIA": state.is_pia,
+        "isLADD": state.is_ladd,
+    }
 
-    position_block = _drop_none(
-        {
-            "lat": state.lat,
-            "lon": state.lon,
-            "altitudeFt": state.altitude_ft,
-            "groundSpeedKts": state.speed_kts,
-            "trackDeg": state.heading_deg,
-            "verticalRateFpm": state.vertical_rate_fpm,
-        }
-    )
+    position_block = {
+        "lat": state.lat,
+        "lon": state.lon,
+        "altitudeFt": state.altitude_ft,
+        "groundSpeedKts": state.speed_kts,
+        "trackDeg": state.heading_deg,
+        "verticalRateFpm": state.vertical_rate_fpm,
+    }
 
-    codes_block = _drop_none(
-        {
-            "squawk": state.squawk,
-            "alert": state.alert,
-            "emergency": state.emergency,
-            "spi": state.spi,
-            "onGround": state.on_ground,
-        }
-    )
+    codes_block = {
+        "squawk": state.squawk,
+        "alert": state.alert,
+        "emergency": state.emergency,
+        "spi": state.spi,
+        "onGround": state.on_ground,
+    }
 
-    raw_block = _drop_none(
-        {
-            "sbs": raw_sbs,
-            "messageType": message_type,
-            "transmissionType": transmission_type,
-        }
-    )
+    raw_block = {
+        "sbs": raw_sbs,
+        "messageType": message_type,
+        "transmissionType": transmission_type,
+    }
 
     return {
         "eventType": EVENT_TYPE,
