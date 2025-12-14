@@ -135,17 +135,18 @@ Remote ID Capture Only?
 | Hardware | Bandwidth | Amazon/Source | Price | Notes |
 |----------|-----------|---------------|-------|-------|
 | **AntSDR E200** | 56 MHz | [CrowdSupply](https://www.crowdsupply.com/microphase/antsdr-e200) | ~$299 | **Turnkey solution** with firmware |
+| **HackRF One** | 20 MHz | [Amazon](https://www.amazon.com/NooElec-Software-Defined-Antenna-Adapter/dp/B01K1CCHR0/) | ~$340 | **Popular & versatile** - detailed instructions below |
 | **ADALM-PLUTO (PlutoSDR)** | 20 MHz | [Amazon](https://www.amazon.com/Analog-Devices-ADALM-PLUTO-Portable-Learning/dp/B074GDY3XH/) | ~$230 | Requires software setup |
-| **HackRF One** | 20 MHz | [Amazon](https://www.amazon.com/NooElec-Software-Defined-Antenna-Adapter/dp/B01K1CCHR0/) | ~$340 | General purpose SDR |
 | **LimeSDR Mini 2.0** | 30.72 MHz | [CrowdSupply](https://www.crowdsupply.com/lime-micro/limesdr-mini-2) | ~$299 | High quality, complex setup |
 
 #### SDR Selection Guide
 
 ```
-Budget Priority?
-├── Yes → PlutoSDR (~$230) + proto17/dji_droneid software
-└── No, want easiest setup?
-    └── AntSDR E200 (~$299) with pre-built firmware
+What's your priority?
+├── Easiest setup → AntSDR E200 (~$299) with pre-built firmware
+├── Already own HackRF → Use HackRF One (detailed instructions in Option C)
+├── Budget priority → PlutoSDR (~$230) + proto17/dji_droneid software
+└── Maximum versatility → HackRF One (~$340) - works for many RF projects
 ```
 
 ### Optional but Recommended
@@ -775,7 +776,448 @@ python3 samples2djidroneid.py --input capture.raw
 
 ---
 
-### Option C: DroneSecurity Research Tool
+### Option C: HackRF One
+
+The HackRF One is a popular, versatile SDR that works well for DJI DroneID capture.
+
+#### HackRF One Specifications
+
+```
+Frequency Range:  1 MHz to 6 GHz
+Sample Rate:      Up to 20 MS/s
+Bandwidth:        20 MHz (sufficient for DJI DroneID)
+Mode:             Half-duplex (RX or TX, not simultaneous)
+Interface:        USB 2.0 High Speed
+ADC:              8-bit
+```
+
+#### Hardware Requirements
+
+- [HackRF One](https://www.amazon.com/NooElec-Software-Defined-Antenna-Adapter/dp/B01K1CCHR0/) (~$340) or [Great Scott Gadgets HackRF One](https://greatscottgadgets.com/hackrf/one/) (~$350)
+- [ANT500 Antenna](https://www.amazon.com/ANT500-Telescopic-Antenna-HackRF-75MHz-1GHz/dp/B00HNXP7TK/) (~$30) or any 2.4 GHz antenna
+- USB cable (included with HackRF)
+- Optional: [Aluminum enclosure case](https://www.amazon.com/Aluminum-Enclosure-Compatible-Software-Defined/dp/B07QNTHVFZ/) (~$25)
+
+#### Step 1: Install HackRF Tools
+
+```bash
+# Install HackRF software and libraries
+sudo apt update
+sudo apt install -y \
+    hackrf \
+    libhackrf-dev \
+    libhackrf0 \
+    libfftw3-dev \
+    libusb-1.0-0-dev
+
+# Install Python bindings (optional)
+pip3 install pyhackrf
+
+# Verify HackRF is detected
+hackrf_info
+
+# Expected output:
+# hackrf_info version: 2024.02.1
+# libhackrf version: 2024.02.1
+# Found HackRF
+# Index: 0
+# Serial number: 0000000000000000XXXXXXXXXXXXXXXX
+# Board ID Number: 2 (HackRF One)
+# Firmware Version: 2024.02.1
+# Part ID Number: 0xXXXXXXXX 0xXXXXXXXX
+```
+
+#### Step 2: Update HackRF Firmware (Recommended)
+
+```bash
+# Download latest firmware from Great Scott Gadgets
+cd /tmp
+wget https://github.com/greatscottgadgets/hackrf/releases/latest/download/hackrf-2024.02.1.zip
+unzip hackrf-2024.02.1.zip
+cd hackrf-2024.02.1
+
+# Flash firmware (HackRF must be in DFU mode)
+# Hold DFU button while plugging in USB
+hackrf_spiflash -w hackrf_one_usb.bin
+
+# Verify new firmware
+hackrf_info
+```
+
+#### Step 3: Install GNU Radio with HackRF Support
+
+```bash
+# Install GNU Radio and OsmoSDR (HackRF support)
+sudo apt install -y \
+    gnuradio \
+    gnuradio-dev \
+    gr-osmosdr \
+    gqrx-sdr
+
+# Verify gr-osmosdr can see HackRF
+python3 -c "import osmosdr; print(osmosdr.source_c())"
+
+# Test with GQRX (GUI spectrum analyzer)
+gqrx
+# In GQRX, select device: hackrf=0
+# Tune to 2.4 GHz to see Wi-Fi/drone activity
+```
+
+#### Step 4: Capture IQ Samples for DJI DroneID
+
+```bash
+# Create capture directory
+mkdir -p /opt/dji-captures
+cd /opt/dji-captures
+
+# Basic capture with hackrf_transfer
+# DJI DroneID is in the 2.4 GHz band
+# Capture at 10 MS/s (10 MHz bandwidth) for 30 seconds
+
+hackrf_transfer \
+    -r dji_capture_2400mhz.raw \
+    -f 2400000000 \
+    -s 10000000 \
+    -l 32 \
+    -g 40 \
+    -n 300000000
+
+# Parameters explained:
+# -r: Receive to file
+# -f: Center frequency (2.4 GHz = 2400000000 Hz)
+# -s: Sample rate (10 MS/s = 10000000)
+# -l: LNA gain (0-40 dB)
+# -g: VGA gain (0-62 dB)
+# -n: Number of samples (300M samples = 30 sec at 10 MS/s)
+```
+
+#### Step 5: Scan Multiple DJI Frequencies
+
+DJI drones may use different channels. Create a scanning script:
+
+```bash
+#!/bin/bash
+# /opt/dji-captures/scan_dji_frequencies.sh
+
+SAMPLE_RATE=10000000
+LNA_GAIN=32
+VGA_GAIN=40
+DURATION_SAMPLES=50000000  # 5 seconds per frequency
+OUTPUT_DIR="/opt/dji-captures"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# Common DJI frequencies in 2.4 GHz band
+FREQUENCIES=(
+    2400000000
+    2420000000
+    2440000000
+    2460000000
+    2480000000
+)
+
+echo "=== DJI DroneID Frequency Scanner ==="
+echo "Scanning ${#FREQUENCIES[@]} frequencies..."
+
+for freq in "${FREQUENCIES[@]}"; do
+    freq_mhz=$((freq / 1000000))
+    output_file="${OUTPUT_DIR}/capture_${freq_mhz}mhz_${TIMESTAMP}.raw"
+
+    echo "[*] Capturing at ${freq_mhz} MHz -> ${output_file}"
+
+    hackrf_transfer \
+        -r "$output_file" \
+        -f $freq \
+        -s $SAMPLE_RATE \
+        -l $LNA_GAIN \
+        -g $VGA_GAIN \
+        -n $DURATION_SAMPLES
+
+    echo "[+] Captured $(du -h "$output_file" | cut -f1)"
+done
+
+echo "=== Scan complete ==="
+ls -la ${OUTPUT_DIR}/*_${TIMESTAMP}.raw
+```
+
+Make it executable:
+```bash
+chmod +x /opt/dji-captures/scan_dji_frequencies.sh
+sudo /opt/dji-captures/scan_dji_frequencies.sh
+```
+
+#### Step 6: Process Captures with proto17/dji_droneid
+
+```bash
+# Clone the decoder
+cd /opt
+git clone https://github.com/proto17/dji_droneid.git
+cd dji_droneid
+
+# Install Octave for processing
+sudo apt install -y octave octave-signal octave-communications
+
+# The HackRF captures 8-bit signed IQ samples
+# You may need to convert to the format expected by the decoder
+
+# Create a Python conversion script
+cat > /opt/dji-captures/convert_hackrf.py << 'EOF'
+#!/usr/bin/env python3
+"""
+Convert HackRF raw captures to format suitable for dji_droneid processing.
+HackRF outputs 8-bit signed integers (I, Q interleaved).
+"""
+
+import sys
+import numpy as np
+
+def convert_hackrf_to_complex64(input_file, output_file):
+    # Read 8-bit signed integers
+    raw = np.fromfile(input_file, dtype=np.int8)
+
+    # Separate I and Q components
+    i_samples = raw[0::2].astype(np.float32) / 128.0
+    q_samples = raw[1::2].astype(np.float32) / 128.0
+
+    # Create complex samples
+    complex_samples = i_samples + 1j * q_samples
+
+    # Save as complex64 (common SDR format)
+    complex_samples.astype(np.complex64).tofile(output_file)
+
+    print(f"Converted {len(complex_samples)} samples")
+    print(f"Input:  {input_file}")
+    print(f"Output: {output_file}")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <input.raw> <output.cf32>")
+        sys.exit(1)
+    convert_hackrf_to_complex64(sys.argv[1], sys.argv[2])
+EOF
+
+chmod +x /opt/dji-captures/convert_hackrf.py
+
+# Convert a capture
+python3 /opt/dji-captures/convert_hackrf.py \
+    /opt/dji-captures/capture_2400mhz.raw \
+    /opt/dji-captures/capture_2400mhz.cf32
+```
+
+#### Step 7: Real-time Capture with GNU Radio
+
+Create a GNU Radio flowgraph for real-time capture:
+
+```bash
+# Create GNU Radio Python script
+cat > /opt/dji-captures/hackrf_dji_capture.py << 'EOF'
+#!/usr/bin/env python3
+"""
+HackRF DJI DroneID Real-time Capture using GNU Radio
+"""
+
+from gnuradio import gr, blocks
+import osmosdr
+import time
+import sys
+
+class DJIDroneIDCapture(gr.top_block):
+    def __init__(self, center_freq=2.4e9, sample_rate=10e6, output_file="capture.raw"):
+        gr.top_block.__init__(self, "DJI DroneID Capture")
+
+        # HackRF Source
+        self.hackrf_source = osmosdr.source(args="numchan=1 hackrf=0")
+        self.hackrf_source.set_sample_rate(sample_rate)
+        self.hackrf_source.set_center_freq(center_freq, 0)
+        self.hackrf_source.set_freq_corr(0, 0)
+        self.hackrf_source.set_gain(0, 0)       # RF gain (auto)
+        self.hackrf_source.set_if_gain(32, 0)   # IF/LNA gain
+        self.hackrf_source.set_bb_gain(40, 0)   # Baseband/VGA gain
+        self.hackrf_source.set_bandwidth(sample_rate, 0)
+
+        # File Sink
+        self.file_sink = blocks.file_sink(gr.sizeof_gr_complex, output_file, False)
+
+        # Connect
+        self.connect(self.hackrf_source, self.file_sink)
+
+        print(f"[*] HackRF DJI DroneID Capture")
+        print(f"    Center Frequency: {center_freq/1e6} MHz")
+        print(f"    Sample Rate: {sample_rate/1e6} MS/s")
+        print(f"    Output File: {output_file}")
+
+def main():
+    freq = float(sys.argv[1]) if len(sys.argv) > 1 else 2.4e9
+    output = sys.argv[2] if len(sys.argv) > 2 else "dji_capture.cf32"
+
+    tb = DJIDroneIDCapture(center_freq=freq, output_file=output)
+
+    print("[*] Starting capture (Ctrl+C to stop)...")
+    tb.start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[*] Stopping capture...")
+
+    tb.stop()
+    tb.wait()
+    print("[+] Capture complete")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x /opt/dji-captures/hackrf_dji_capture.py
+
+# Run real-time capture
+python3 /opt/dji-captures/hackrf_dji_capture.py 2400000000 dji_capture.cf32
+```
+
+#### Step 8: Use samples2djidroneid for Decoding
+
+```bash
+# Clone the decoder (simpler than proto17's MATLAB version)
+cd /opt
+git clone https://github.com/anarkiwi/samples2djidroneid.git
+cd samples2djidroneid
+
+# Install dependencies
+pip3 install numpy scipy
+
+# Process HackRF capture
+# Note: You may need to adjust sample rate parameter
+python3 samples2djidroneid.py \
+    --input /opt/dji-captures/capture_2400mhz.cf32 \
+    --sample-rate 10000000
+```
+
+#### Step 9: Continuous Monitoring Script
+
+Create a complete monitoring solution:
+
+```bash
+cat > /opt/dji-captures/monitor_dji.sh << 'EOF'
+#!/bin/bash
+# Continuous DJI DroneID monitoring with HackRF
+
+CAPTURE_DIR="/opt/dji-captures/live"
+SAMPLE_RATE=10000000
+CENTER_FREQ=2440000000  # 2.44 GHz (middle of band)
+CHUNK_DURATION=10       # Seconds per capture chunk
+
+mkdir -p "$CAPTURE_DIR"
+
+echo "=== DJI DroneID Continuous Monitor ==="
+echo "Frequency: $((CENTER_FREQ/1000000)) MHz"
+echo "Sample Rate: $((SAMPLE_RATE/1000000)) MS/s"
+echo "Chunk Duration: ${CHUNK_DURATION}s"
+echo ""
+echo "Press Ctrl+C to stop"
+echo ""
+
+cleanup() {
+    echo "[*] Shutting down..."
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+while true; do
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    OUTPUT_FILE="${CAPTURE_DIR}/chunk_${TIMESTAMP}.raw"
+    SAMPLES=$((SAMPLE_RATE * CHUNK_DURATION))
+
+    echo "[$(date +%H:%M:%S)] Capturing to ${OUTPUT_FILE}..."
+
+    hackrf_transfer \
+        -r "$OUTPUT_FILE" \
+        -f $CENTER_FREQ \
+        -s $SAMPLE_RATE \
+        -l 32 \
+        -g 40 \
+        -n $SAMPLES 2>/dev/null
+
+    # Process the chunk in background
+    (
+        python3 /opt/dji-captures/convert_hackrf.py \
+            "$OUTPUT_FILE" \
+            "${OUTPUT_FILE%.raw}.cf32" 2>/dev/null
+
+        # Attempt to decode
+        cd /opt/samples2djidroneid
+        python3 samples2djidroneid.py \
+            --input "${OUTPUT_FILE%.raw}.cf32" \
+            --sample-rate $SAMPLE_RATE 2>/dev/null | \
+            grep -i "drone\|serial\|latitude\|longitude" && \
+            echo "[!] DRONE DETECTED in ${OUTPUT_FILE}"
+
+        # Clean up raw file to save space (keep .cf32)
+        rm -f "$OUTPUT_FILE"
+    ) &
+
+    # Limit background jobs
+    while [ $(jobs -r | wc -l) -ge 3 ]; do
+        sleep 1
+    done
+done
+EOF
+
+chmod +x /opt/dji-captures/monitor_dji.sh
+```
+
+#### HackRF Troubleshooting
+
+```bash
+# HackRF not detected
+hackrf_info
+# If "No HackRF boards found", check:
+lsusb | grep -i hackrf
+# Should show: "1d50:6089 OpenMoko, Inc. Great Scott Gadgets HackRF One SDR"
+
+# Permission denied
+sudo usermod -aG plugdev $USER
+# Log out and back in
+
+# Create udev rules
+sudo tee /etc/udev/rules.d/53-hackrf.rules << 'EOF'
+ATTR{idVendor}=="1d50", ATTR{idProduct}=="6089", SYMLINK+="hackrf-one-%k", MODE="660", GROUP="plugdev"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# USB bandwidth issues (common on Raspberry Pi)
+# Use a powered USB hub or USB 3.0 port
+# Reduce sample rate if needed:
+hackrf_transfer -r test.raw -f 2400000000 -s 8000000 -n 10000000
+
+# Overrun errors (dropping samples)
+# Lower the sample rate or increase USB buffer:
+# Add to /boot/cmdline.txt (Pi):
+# usbcore.usbfs_memory_mb=256
+
+# Check for RF interference
+# Use GQRX to visually inspect the spectrum
+gqrx
+# Look for strong signals that might be saturating the receiver
+```
+
+#### HackRF vs Other SDRs for DJI DroneID
+
+| Feature | HackRF One | PlutoSDR | AntSDR E200 |
+|---------|------------|----------|-------------|
+| Price | ~$340 | ~$230 | ~$299 |
+| Bandwidth | 20 MHz | 20 MHz* | 56 MHz |
+| Frequency | 1 MHz - 6 GHz | 70 MHz - 6 GHz | 70 MHz - 6 GHz |
+| ADC Bits | 8-bit | 12-bit | 12-bit |
+| Ease of Use | Medium | Medium | Easy (turnkey) |
+| Linux Support | Excellent | Good | Good |
+| Pi Compatible | Yes | Yes | Yes |
+
+*PlutoSDR requires firmware mod for full 20 MHz
+
+---
+
+### Option D: DroneSecurity Research Tool
 
 The original academic research implementation from Ruhr University Bochum.
 
